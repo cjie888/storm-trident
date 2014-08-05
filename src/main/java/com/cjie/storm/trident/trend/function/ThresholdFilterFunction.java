@@ -36,7 +36,6 @@ public class ThresholdFilterFunction extends
         collector.emit(new Values(stateChange,
                 threshold));
         this.last = newState;
-        LOG.debug("State change? --> {}",
-                stateChange);
+        LOG.debug("State change? --> {}", stateChange);
     }
 }

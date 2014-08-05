@@ -17,12 +17,10 @@ import storm.trident.tuple.TridentTuple;
  */
 public class MovingAverageFunction extends
         BaseFunction {
-    private static final Logger LOG =
-            LoggerFactory.getLogger(BaseFunction.class);
+    private static final Logger LOG = LoggerFactory.getLogger(BaseFunction.class);
     private EWMA ewma;
     private EWMA.Time emitRatePer;
-    public MovingAverageFunction(EWMA ewma, EWMA.Time
-            emitRatePer){
+    public MovingAverageFunction(EWMA ewma, EWMA.Time emitRatePer){
         this.ewma = ewma;
         this.emitRatePer = emitRatePer;
     }

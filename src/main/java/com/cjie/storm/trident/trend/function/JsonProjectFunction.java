@@ -25,8 +25,7 @@ public class JsonProjectFunction extends BaseFunction {
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
         String json = tuple.getString(0);
-        Map<String, Object> map = (Map<String, Object>)
-                JSONValue.parse(json);
+        Map<String, Object> map = (Map<String, Object>) JSONValue.parse(json);
         Values values = new Values();
         for (int i = 0; i < this.fields.size(); i++) {
             values.add(map.get(this.fields.get(i)));

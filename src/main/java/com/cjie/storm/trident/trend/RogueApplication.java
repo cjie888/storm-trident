@@ -19,20 +19,23 @@ public class RogueApplication {
             Exception {
         int slowCount = 6;
         int fastCount = 15;
-       // slow state
-        for(int i = 0; i < slowCount; i++){
-            LOG.warn("This is a warning (slow state).");
-            Thread.sleep(5000);
+        while (true)        {
+            // slow state
+            for(int i = 0; i < slowCount; i++){
+                LOG.warn("This is a warning (slow state).");
+                Thread.sleep(5000);
+            }
+            // enter rapid state
+            for(int i = 0; i < fastCount; i++){
+                LOG.warn("This is a warning (rapid state).");
+                Thread.sleep(1000);
+            }
+            // return to slow state
+            for(int i = 0; i < slowCount; i++){
+                LOG.warn("This is a warning (slow state).");
+                Thread.sleep(5000);
+            }
         }
-        // enter rapid state
-        for(int i = 0; i < fastCount; i++){
-            LOG.warn("This is a warning (rapid state).");
-            Thread.sleep(1000);
-        }
-        // return to slow state
-        for(int i = 0; i < slowCount; i++){
-            LOG.warn("This is a warning (slow state).");
-            Thread.sleep(5000);
-        }
+
     }
 }

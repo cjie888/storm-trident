@@ -45,8 +45,7 @@ public class LogAnalysisTopology {
                 Fields("str"), new JsonProjectFunction(jsonFields),
                 jsonFields);
         // drop the unparsed JSON to reduce tuple size
-        parsedStream =
-                parsedStream.project(jsonFields);
+        parsedStream = parsedStream.project(jsonFields);
         EWMA ewma = new EWMA().sliding(1.0,
                 EWMA.Time.MINUTES).withAlpha(EWMA.ONE_MINUTE_ALPHA);
         Stream averageStream = parsedStream.each(new
@@ -68,19 +67,14 @@ public class LogAnalysisTopology {
     public static void main(String[] args) throws
             Exception {
         Config conf = new Config();
-        conf.put(XMPPFunction.XMPP_USER,
-                "storm@budreau.local");
-        conf.put(XMPPFunction.XMPP_PASSWORD,
-                "storm");
-        conf.put(XMPPFunction.XMPP_SERVER,
-                "budreau.local");
-        conf.put(XMPPFunction.XMPP_TO,
-                "tgoetz@budreau.local");
+        conf.put(XMPPFunction.XMPP_USER, "storm@budreau.local");
+        conf.put(XMPPFunction.XMPP_PASSWORD, "storm");
+        conf.put(XMPPFunction.XMPP_SERVER, "budreau.local");
+        conf.put(XMPPFunction.XMPP_TO, "tgoetz@budreau.local");
         conf.setMaxSpoutPending(5);
         if (args.length == 0) {
            LocalCluster cluster = new LocalCluster();
-           cluster.submitTopology("log-analysis",
-                    conf, buildTopology());
+           cluster.submitTopology("log-analysis", conf, buildTopology());
         } else {
             conf.setNumWorkers(3);
             StormSubmitter.submitTopology(args[0],
