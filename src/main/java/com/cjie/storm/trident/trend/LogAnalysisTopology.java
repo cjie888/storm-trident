@@ -4,6 +4,7 @@ import backtype.storm.Config;
 import backtype.storm.LocalCluster;
 import backtype.storm.StormSubmitter;
 import backtype.storm.generated.StormTopology;
+import backtype.storm.spout.SchemeAsMultiScheme;
 import backtype.storm.tuple.Fields;
 import com.cjie.storm.trident.trend.filter.BooleanFilter;
 import com.cjie.storm.trident.trend.function.JsonProjectFunction;
@@ -12,6 +13,7 @@ import com.cjie.storm.trident.trend.function.ThresholdFilterFunction;
 import com.cjie.storm.trident.trend.function.XMPPFunction;
 import com.cjie.storm.trident.trend.message.NotifyMessageMapper;
 import storm.kafka.KafkaConfig;
+import storm.kafka.StringScheme;
 import storm.kafka.trident.OpaqueTridentKafkaSpout;
 import storm.kafka.trident.TridentKafkaConfig;
 import storm.trident.Stream;
@@ -34,6 +36,7 @@ public class LogAnalysisTopology {
         TridentKafkaConfig spoutConf = new
                 TridentKafkaConfig(kafkaHosts, "log-analysis");
         //spoutConf.scheme = new StringScheme();
+        spoutConf.scheme = new SchemeAsMultiScheme(new StringScheme());
         spoutConf.forceStartOffsetTime(-1);
         OpaqueTridentKafkaSpout spout = new
                 OpaqueTridentKafkaSpout(spoutConf);

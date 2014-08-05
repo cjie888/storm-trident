@@ -1,6 +1,8 @@
 package com.cjie.storm.trident.trend;
 
+import backtype.storm.spout.SchemeAsMultiScheme;
 import storm.kafka.KafkaConfig;
+import storm.kafka.StringScheme;
 import storm.kafka.trident.OpaqueTridentKafkaSpout;
 import storm.kafka.trident.TridentKafkaConfig;
 import storm.trident.Stream;
@@ -18,14 +20,14 @@ import java.util.Arrays;
 public class TrendTopology {
 
     public static void main(String[] args) {
-        TridentTopology topology = new
-                TridentTopology();
+        TridentTopology topology = new TridentTopology();
         KafkaConfig.StaticHosts kafkaHosts =
                 KafkaConfig.StaticHosts.fromHostString(
                         Arrays.asList(new String[]{"testserver"}), 1);
         TridentKafkaConfig spoutConf = new
                 TridentKafkaConfig(kafkaHosts, "log-analysis");
         //spoutConf.scheme = new StringScheme();
+        spoutConf.scheme = new SchemeAsMultiScheme(new StringScheme());
         spoutConf.forceStartOffsetTime(-1);
         OpaqueTridentKafkaSpout spout = new
                 OpaqueTridentKafkaSpout(spoutConf);
