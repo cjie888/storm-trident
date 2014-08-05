@@ -20,8 +20,7 @@ public class OutbreakTrendBackingMap implements
         IBackingMap<Long> {
     private static final Logger LOG =
     LoggerFactory.getLogger(OutbreakTrendBackingMap.class);
-    Map<String, Long> storage =
-            new ConcurrentHashMap<String, Long>();
+    Map<String, Long> storage = new ConcurrentHashMap<String, Long>();
     @Override
     public List<Long> multiGet(List<List<Object>> keys)
     {
@@ -37,14 +36,11 @@ public class OutbreakTrendBackingMap implements
         return values;
     }
     @Override
-    public void multiPut(List<List<Object>> keys,
-                         List<Long> vals) {
+    public void multiPut(List<List<Object>> keys, List<Long> vals) {
         for (int i=0; i < keys.size(); i++) {
-            LOG.info("Persisting [" + keys.get(i).get(0) +
-                    "] ==> ["
+            LOG.info("Persisting [" + keys.get(i).get(0) + "] ==> ["
                     + vals.get(i) + "]");
-            storage.put((String) keys.get(i).get(0),
-                    vals.get(i));
+            storage.put((String) keys.get(i).get(0), vals.get(i));
         }
     }
 }

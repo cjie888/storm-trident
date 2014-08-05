@@ -36,13 +36,11 @@ public class JsonFormatter implements Formatter {
         sb.append("}");
         return sb.toString();
     }
-    private static void fieldName(String name,
-                                  StringBuilder sb) {
+    private static void fieldName(String name, StringBuilder sb) {
         quote(name, sb);
         sb.append(COLON);
     }
-    private static void quote(String value,
-                              StringBuilder sb) {
+    private static void quote(String value, StringBuilder sb) {
         sb.append(QUOTE);
         sb.append(value);
         sb.append(QUOTE);

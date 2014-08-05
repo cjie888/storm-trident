@@ -13,13 +13,10 @@ import java.util.Map;
  * Time: 下午7:54
  * To change this template use File | Settings | File Templates.
  */
-public class OutbreakTrendFactory implements
-        StateFactory {
+public class OutbreakTrendFactory implements StateFactory {
     @Override
     public State makeState(Map conf, IMetricsContext
-            metrics,
-                           int partitionIndex, int numPartitions) {
-        return new OutbreakTrendState(new
-                OutbreakTrendBackingMap());
+            metrics, int partitionIndex, int numPartitions) {
+        return new OutbreakTrendState(new OutbreakTrendBackingMap());
     }
 }

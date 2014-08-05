@@ -27,10 +27,7 @@ public class MovingAverageFunction extends
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
         this.ewma.mark(tuple.getLong(0));
-        LOG.debug("Rate: {}",
-                this.ewma.getAverageRatePer(this.emitRatePer));
-        collector.emit(new
-                Values(this.ewma.getAverageRatePer(this.emitRatePer
-        )));
+        LOG.debug("Rate: {}", this.ewma.getAverageRatePer(this.emitRatePer));
+        collector.emit(new Values(this.ewma.getAverageRatePer(this.emitRatePer)));
     }
 }

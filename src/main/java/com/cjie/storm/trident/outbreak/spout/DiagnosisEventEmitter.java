@@ -20,13 +20,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DiagnosisEventEmitter implements
         ITridentSpout.Emitter<Long>, Serializable {
     private static final long serialVersionUID = 1L;
-    AtomicInteger successfulTransactions = new
-            AtomicInteger(0);
+    AtomicInteger successfulTransactions = new AtomicInteger(0);
 
     @Override
     public void emitBatch(TransactionAttempt tx, Long
-            coordinatorMeta, TridentCollector
-                                  collector) {
+            coordinatorMeta, TridentCollector collector) {
         for (int i = 0; i < 10000; i++) {
             List<Object> events = new ArrayList<Object>();
             double lat =  new Double(-30 + (int) (Math.random() * 75));

@@ -12,11 +12,12 @@ import java.io.Serializable;
 
 public class EWMA implements Serializable {
     public static enum Time {
-        MILLISECONDS(1), SECONDS(1000),
+        MILLISECONDS(1),
+        SECONDS(1000),
         MINUTES(SECONDS.getTime() * 60),
-        HOURS(MINUTES.getTime() * 60), DAYS(HOURS
-                .getTime() * 24), WEEKS(DAYS.getTime()
-                * 7);
+        HOURS(MINUTES.getTime() * 60),
+        DAYS(HOURS.getTime() * 24),
+        WEEKS(DAYS.getTime() * 7);
         private long millis;
         private Time(long millis) {
             this.millis = millis;
@@ -27,12 +28,9 @@ public class EWMA implements Serializable {
     }
 
     // Unix load average-style alpha constants
-    public static final double ONE_MINUTE_ALPHA = 1 -
-            Math.exp(-5d / 60d / 1d);
-    public static final double FIVE_MINUTE_ALPHA = 1
-            - Math.exp(-5d / 60d / 5d);
-    public static final double FIFTEEN_MINUTE_ALPHA =
-            1 - Math.exp(-5d / 60d / 15d);
+    public static final double ONE_MINUTE_ALPHA = 1 - Math.exp(-5d / 60d / 1d);
+    public static final double FIVE_MINUTE_ALPHA = 1 - Math.exp(-5d / 60d / 5d);
+    public static final double FIFTEEN_MINUTE_ALPHA =  1 - Math.exp(-5d / 60d / 15d);
     private long window;
     private long alphaWindow;
     private long last;
@@ -43,8 +41,7 @@ public class EWMA implements Serializable {
     }
 
     public EWMA sliding(double count, Time time) {
-        return this.sliding((long) (time.getTime() *
-                count));
+        return this.sliding((long) (time.getTime() * count));
     }
     public EWMA sliding(long window) {
         this.sliding = true;
@@ -67,8 +64,7 @@ public class EWMA implements Serializable {
 
     public EWMA withAlphaWindow(double count, Time
             time) {
-        return this.withAlphaWindow((long)
-                (time.getTime() * count));
+        return this.withAlphaWindow((long) (time.getTime() * count));
     }
     public void mark() {
         mark(System.currentTimeMillis());
@@ -77,7 +73,7 @@ public class EWMA implements Serializable {
     public synchronized void mark(long time) {
         if (this.sliding) {
             if (time - this.last > this.window) {
-// reset the sliding window
+                // reset the sliding window
                 this.last = 0;
             }
         }
@@ -88,8 +84,7 @@ public class EWMA implements Serializable {
         long diff = time - this.last;
         double alpha = this.alpha != -1.0 ? this.alpha :
                 Math.exp(-1.0 * ((double) diff / this.alphaWindow));
-        this.average = (1.0 - alpha) * diff + alpha *
-                this.average;
+        this.average = (1.0 - alpha) * diff + alpha * this.average;
         this.last = time;
     }
     public double getAverage() {

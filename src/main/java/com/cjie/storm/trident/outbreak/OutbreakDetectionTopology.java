@@ -49,8 +49,7 @@ public class OutbreakDetectionTopology {
             Exception {
         Config conf = new Config();
         LocalCluster cluster = new LocalCluster();
-        cluster.submitTopology("cdc", conf,
-                buildTopology());
+        cluster.submitTopology("cdc", conf, buildTopology());
         Thread.sleep(200000);
         cluster.shutdown();
     }

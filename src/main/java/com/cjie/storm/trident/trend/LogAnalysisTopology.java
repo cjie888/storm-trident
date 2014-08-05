@@ -33,36 +33,29 @@ public class LogAnalysisTopology {
         TridentTopology topology = new TridentTopology();
         KafkaConfig.StaticHosts kafkaHosts = KafkaConfig.StaticHosts.fromHostString(
                         Arrays.asList(new String[]{"testserver"}), 1);
-        TridentKafkaConfig spoutConf = new
-                TridentKafkaConfig(kafkaHosts, "log-analysis");
+        TridentKafkaConfig spoutConf = new TridentKafkaConfig(kafkaHosts, "log-analysis");
         //spoutConf.scheme = new StringScheme();
         spoutConf.scheme = new SchemeAsMultiScheme(new StringScheme());
         spoutConf.forceStartOffsetTime(-1);
-        OpaqueTridentKafkaSpout spout = new
-                OpaqueTridentKafkaSpout(spoutConf);
+        OpaqueTridentKafkaSpout spout = new OpaqueTridentKafkaSpout(spoutConf);
         Stream spoutStream = topology.newStream("kafka-stream", spout);
         Fields jsonFields = new Fields("level","timestamp", "message", "logger");
         Stream parsedStream = spoutStream.each(new
-                Fields("str"), new JsonProjectFunction(jsonFields),
-                jsonFields);
+                Fields("str"), new JsonProjectFunction(jsonFields), jsonFields);
         // drop the unparsed JSON to reduce tuple size
         parsedStream = parsedStream.project(jsonFields);
         EWMA ewma = new EWMA().sliding(1.0,
                 EWMA.Time.MINUTES).withAlpha(EWMA.ONE_MINUTE_ALPHA);
-        Stream averageStream = parsedStream.each(new
-                Fields("timestamp"),
+        Stream averageStream = parsedStream.each(new Fields("timestamp"),
                 new MovingAverageFunction(ewma,
                         EWMA.Time.MINUTES), new Fields("average"));
         ThresholdFilterFunction tff = new ThresholdFilterFunction(50D);
-        Stream thresholdStream =
-                averageStream.each(new Fields("average"), tff, new
-                        Fields("change", "threshold"));
+        Stream thresholdStream = averageStream.each(new Fields("average"), tff,
+                new Fields("change", "threshold"));
         Stream filteredStream =
-                thresholdStream.each(new Fields("change"), new
-                        BooleanFilter());
-        filteredStream.each(filteredStream.getOutputFields(
-        ), new XMPPFunction(new NotifyMessageMapper()), new
-                Fields());
+                thresholdStream.each(new Fields("change"), new BooleanFilter());
+        filteredStream.each(filteredStream.getOutputFields(),
+                new XMPPFunction(new NotifyMessageMapper()), new Fields());
         return topology.build();
     }
     public static void main(String[] args) throws

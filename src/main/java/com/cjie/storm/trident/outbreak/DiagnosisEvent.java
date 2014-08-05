@@ -17,8 +17,7 @@ public class DiagnosisEvent implements Serializable {
     public String diagnosisCode;
 
     public DiagnosisEvent(double lat, double lng,
-                          long time, String diagnosisCode)
-    {
+                          long time, String diagnosisCode) {
         super();
         this.time = time;
         this.lat = lat;

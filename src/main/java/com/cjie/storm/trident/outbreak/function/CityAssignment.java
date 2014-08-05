@@ -39,21 +39,15 @@ public class CityAssignment extends BaseFunction {
     @Override
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
-        DiagnosisEvent diagnosis =
-                (DiagnosisEvent)
-                        tuple.getValue(0);
+        DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
         double leastDistance = Double.MAX_VALUE;
         String closestCity = "NONE";
         // Find the closest city.
-        for (Map.Entry<String, double[]> city :
-                CITIES.entrySet()) {
+        for (Map.Entry<String, double[]> city : CITIES.entrySet()) {
             double R = 6371; // km
-            double x = (city.getValue()[0] -
-                    diagnosis.lng) *
-                    Math.cos((city.getValue()[0] +
-                            diagnosis.lng) / 2);
-            double y = (city.getValue()[1] -
-                    diagnosis.lat);
+            double x = (city.getValue()[0] - diagnosis.lng) *
+                    Math.cos((city.getValue()[0] + diagnosis.lng) / 2);
+            double y = (city.getValue()[1] - diagnosis.lat);
             double d = Math.sqrt(x * x + y * y) * R;
             if (d < leastDistance) {
                 leastDistance = d;
@@ -63,11 +57,9 @@ public class CityAssignment extends BaseFunction {
         // Emit the value.
         List<Object> values = new ArrayList<Object>();
         values.add(closestCity);
-        LOG.debug("Closest city to lat=[" +
-                diagnosis.lat +
+        LOG.debug("Closest city to lat=[" + diagnosis.lat +
                 "], lng=[" + diagnosis.lng + "] == ["
-                + closestCity + "], d=[" + leastDistance
-                + "]");
+                + closestCity + "], d=[" + leastDistance + "]");
         collector.emit(values);
     }
 }

@@ -20,17 +20,13 @@ public class DiseaseFilter extends BaseFilter {
 
     @Override
     public boolean isKeep(TridentTuple tuple) {
-        DiagnosisEvent diagnosis = (DiagnosisEvent)
-                tuple.getValue(0);
-        Integer code =
-                Integer.parseInt(diagnosis.diagnosisCode);
+        DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
+        Integer code = Integer.parseInt(diagnosis.diagnosisCode);
         if (code.intValue() <= 322) {
-            LOG.debug("Emitting disease [" +
-                    diagnosis.diagnosisCode + "]");
+            LOG.debug("Emitting disease [" + diagnosis.diagnosisCode + "]");
             return true;
         } else {
-            LOG.debug("Filtering disease [" +
-                    diagnosis.diagnosisCode + "]");
+            LOG.debug("Filtering disease [" + diagnosis.diagnosisCode + "]");
             return false;
         }
     }

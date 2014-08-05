@@ -25,16 +25,12 @@ public class HourAssignment extends BaseFunction {
     @Override
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
-        DiagnosisEvent diagnosis = (DiagnosisEvent)
-                tuple.getValue(0);
+        DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
         String city = (String) tuple.getValue(1);
         long timestamp = diagnosis.time;
         long hourSinceEpoch = timestamp / 1000 / 60 / 60;
-        LOG.debug("Key = [" + city + ":" + hourSinceEpoch
-                + "]");
-        String key = city + ":" + diagnosis.diagnosisCode
-                + ":" +
-                hourSinceEpoch;
+        LOG.debug("Key = [" + city + ":" + hourSinceEpoch + "]");
+        String key = city + ":" + diagnosis.diagnosisCode + ":" + hourSinceEpoch;
         List<Object> values = new ArrayList<Object>();
         values.add(hourSinceEpoch);
         values.add(key);

@@ -181,7 +181,7 @@
                         <manifest>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>com.dianxinos.msp.wifi.rest.SampleApplication</mainClass>
+                            <mainClass>com.cjie.storm.trident.trend.RogueApplication</mainClass>
                         </manifest>
                     </archive>
                     <excludes>
@@ -193,25 +193,6 @@
                         <exclude>**/*.sh</exclude>
                     </excludes>
                 </configuration>
-                <!--<executions>-->
-                <!--<execution>-->
-                <!--<id>server</id>-->
-                <!--<goals>-->
-                <!--<goal>jar</goal>-->
-                <!--</goals>-->
-                <!--<phase>package</phase>-->
-                <!--<configuration>-->
-                <!--<classifier>server</classifier>-->
-                <!--<archive>-->
-                <!--<manifest>-->
-                <!--<addClasspath>true</addClasspath>-->
-                <!--<classpathPrefix>lib/</classpathPrefix>-->
-                <!--<mainClass>com.dianxinos.msp.wifi.rest.SampleApplication</mainClass>-->
-                <!--</manifest>-->
-                <!--</archive>-->
-                <!--</configuration>-->
-                <!--</execution>-->
-                <!--</executions>-->
             </plugin>
 
             <plugin>
@@ -239,8 +220,6 @@
                         <nonFilteredFileExtension>dat</nonFilteredFileExtension>
                         <nonFilteredFileExtension>dic</nonFilteredFileExtension>
                         <nonFilteredFileExtension>json</nonFilteredFileExtension>
-                        <nonFilteredFileExtension>der</nonFilteredFileExtension>
-                        <nonFilteredFileExtension>pem</nonFilteredFileExtension>
                     </nonFilteredFileExtensions>
                 </configuration>
             </plugin>

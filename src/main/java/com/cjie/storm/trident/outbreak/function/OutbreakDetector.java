@@ -25,8 +25,7 @@ public class OutbreakDetector extends BaseFunction {
         Long count = (Long) tuple.getValue(1);
         if (count > THRESHOLD) {
             List<Object> values = new ArrayList<Object>();
-            values.add("Outbreak detected for [" + key +
-                    "]!");
+            values.add("Outbreak detected for [" + key + "]!");
             collector.emit(values);
         }
     }

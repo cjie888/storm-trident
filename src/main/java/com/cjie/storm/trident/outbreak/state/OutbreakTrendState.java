@@ -9,10 +9,8 @@ import storm.trident.state.map.NonTransactionalMap;
  * Time: 下午8:10
  * To change this template use File | Settings | File Templates.
  */
-public class OutbreakTrendState extends
-        NonTransactionalMap<Long> {
-    protected OutbreakTrendState(
-            OutbreakTrendBackingMap outbreakBackingMap) {
+public class OutbreakTrendState extends NonTransactionalMap<Long> {
+    protected OutbreakTrendState(OutbreakTrendBackingMap outbreakBackingMap) {
         super(outbreakBackingMap);
     }
 }

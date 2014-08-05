@@ -15,8 +15,7 @@ public class RogueApplication {
 //            LoggerFactory.getLogger(RogueApplication.class);
     private static final Logger LOG =
         LoggerFactory.getLogger("com.cjie.storm.trident.trend.RogueApplication");
-    public static void main(String[] args) throws
-            Exception {
+    public static void main(String[] args) throws Exception {
         int slowCount = 6;
         int fastCount = 15;
         while (true)        {

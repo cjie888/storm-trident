@@ -25,7 +25,7 @@ public class KafkaAppender extends
     private Formatter formatter;
 
     // java bean definitions used to inject
-// configuration values from logback.xml
+    // configuration values from logback.xml
     public String getTopic() {
         return topic;
     }
@@ -55,8 +55,7 @@ public class KafkaAppender extends
         super.start();
         Properties props = new Properties();
         props.put("zk.connect", this.zookeeperHost);
-        props.put("serializer.class",
-                "kafka.serializer.StringEncoder");
+        props.put("serializer.class", "kafka.serializer.StringEncoder");
         ProducerConfig config = new ProducerConfig(props);
         this.producer = new Producer<String, String>(config);
     }
@@ -68,20 +67,17 @@ public class KafkaAppender extends
     @Override
     protected void append(ILoggingEvent event) {
        String payload = this.formatter.format(event);
-       ProducerData<String, String> data = new
-               ProducerData<String, String>(this.topic, payload);
+       ProducerData<String, String> data = new ProducerData<String, String>(this.topic, payload);
        this.producer.send(data);
     }
     public static void main(String[] args) {
         Properties props = new Properties();
         props.put("zk.connect", "testserver:2181");
-        props.put("serializer.class",
-                "kafka.serializer.StringEncoder");
+        props.put("serializer.class", "kafka.serializer.StringEncoder");
         ProducerConfig config = new ProducerConfig(props);
         Producer producer = new Producer<String, String>(config);
         String payload = String.format("abc%s","test");
-        ProducerData<String, String> data = new
-                ProducerData<String, String>("mytopic", payload);
+        ProducerData<String, String> data = new ProducerData<String, String>("mytopic", payload);
         producer.send(data);
     }
 }

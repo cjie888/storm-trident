@@ -29,11 +29,9 @@ public class ThresholdFilterFunction extends
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
         double val = tuple.getDouble(0);
-        State newState = val < this.threshold ?
-                State.BELOW : State.ABOVE;
+        State newState = val < this.threshold ? State.BELOW : State.ABOVE;
         boolean stateChange = this.last != newState;
-        collector.emit(new Values(stateChange,
-                threshold));
+        collector.emit(new Values(stateChange, threshold));
         this.last = newState;
         LOG.debug("State change? --> {}", stateChange);
     }

@@ -47,17 +47,15 @@ public class XMPPFunction extends BaseFunction {
         this.xmppConnection = new XMPPConnection(config);
         try {
             this.xmppConnection.connect();
-            this.xmppConnection.login((String)
-                    conf.get(XMPP_USER), (String)
-                    conf.get(XMPP_PASSWORD));
+            this.xmppConnection.login((String) conf.get(XMPP_USER),
+                    (String) conf.get(XMPP_PASSWORD));
         } catch (XMPPException e) {
             LOG.warn("Error initializing XMPP Channel", e);
         }
     }
     public void execute(TridentTuple tuple,
                         TridentCollector collector) {
-       Message msg = new Message(this.to,
-                Message.Type.normal);
+       Message msg = new Message(this.to, Message.Type.normal);
        msg.setBody(this.mapper.toMessageBody(tuple));
        this.xmppConnection.sendPacket(msg);
     }
