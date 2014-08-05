@@ -28,10 +28,9 @@ import java.util.Arrays;
  */
 public class LogAnalysisTopology {
     public static StormTopology buildTopology() {
-        TridentTopology topology = new
-                TridentTopology();
-        KafkaConfig.StaticHosts kafkaHosts =
-                KafkaConfig.StaticHosts.fromHostString(Arrays.asList(new String[]{"localhost"}), 1);
+        TridentTopology topology = new TridentTopology();
+        KafkaConfig.StaticHosts kafkaHosts = KafkaConfig.StaticHosts.fromHostString(
+                        Arrays.asList(new String[]{"testserver"}), 1);
         TridentKafkaConfig spoutConf = new
                 TridentKafkaConfig(kafkaHosts, "log-analysis");
         //spoutConf.scheme = new StringScheme();
@@ -39,8 +38,7 @@ public class LogAnalysisTopology {
         OpaqueTridentKafkaSpout spout = new
                 OpaqueTridentKafkaSpout(spoutConf);
         Stream spoutStream = topology.newStream("kafka-stream", spout);
-        Fields jsonFields = new Fields("level",
-                "timestamp", "message", "logger");
+        Fields jsonFields = new Fields("level","timestamp", "message", "logger");
         Stream parsedStream = spoutStream.each(new
                 Fields("str"), new JsonProjectFunction(jsonFields),
                 jsonFields);

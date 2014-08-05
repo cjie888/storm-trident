@@ -23,8 +23,7 @@ public class ThresholdFilterFunction extends
     }
     private State last = State.BELOW;
     private double threshold;
-    public ThresholdFilterFunction(double
-                                           threshold){
+    public ThresholdFilterFunction(double threshold){
         this.threshold = threshold;
     }
     public void execute(TridentTuple tuple,
