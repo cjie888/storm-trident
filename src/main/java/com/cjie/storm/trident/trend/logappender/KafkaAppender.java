@@ -58,8 +58,7 @@ public class KafkaAppender extends
         props.put("zk.connect", this.zookeeperHost);
         props.put("serializer.class",
                 "kafka.serializer.StringEncoder");
-        ProducerConfig config = new
-                ProducerConfig(props);
+        ProducerConfig config = new ProducerConfig(props);
         this.producer = new Producer<String, String>(config);
     }
     @Override
@@ -72,6 +71,11 @@ public class KafkaAppender extends
        String payload = this.formatter.format(event);
        ProducerData<String, String> data = new
                ProducerData<String, String>(this.topic, payload);
-        this.producer.send((List<kafka.javaapi.producer.ProducerData<String,String>>) data);
+       this.producer.send((List<kafka.javaapi.producer.ProducerData<String,String>>) data);
+    }
+    public static void main(String[] args) {
+        KafkaAppender kafkaAppender = new KafkaAppender();
+        kafkaAppender.setZookeeperHost("testserver:2181");
+        kafkaAppender.start();
     }
 }

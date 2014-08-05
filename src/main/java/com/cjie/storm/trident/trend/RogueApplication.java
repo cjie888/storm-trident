@@ -11,8 +11,10 @@ import org.slf4j.LoggerFactory;
  * To change this template use File | Settings | File Templates.
  */
 public class RogueApplication {
+//    private static final Logger LOG =
+//            LoggerFactory.getLogger(RogueApplication.class);
     private static final Logger LOG =
-            LoggerFactory.getLogger(RogueApplication.class);
+        LoggerFactory.getLogger("com.cjie.storm.trident.trend.RogueApplication");
     public static void main(String[] args) throws
             Exception {
         int slowCount = 6;
