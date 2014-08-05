@@ -60,8 +60,7 @@ public class KafkaAppender extends
                 "kafka.serializer.StringEncoder");
         ProducerConfig config = new
                 ProducerConfig(props);
-        this.producer = new Producer<String,
-                        String>(config);
+        this.producer = new Producer<String, String>(config);
     }
     @Override
     public void stop() {
@@ -70,7 +69,7 @@ public class KafkaAppender extends
     }
     @Override
     protected void append(ILoggingEvent event) {
-        String payload = this.formatter.format(event);
+       String payload = this.formatter.format(event);
        ProducerData<String, String> data = new
                ProducerData<String, String>(this.topic, payload);
         this.producer.send((List<kafka.javaapi.producer.ProducerData<String,String>>) data);

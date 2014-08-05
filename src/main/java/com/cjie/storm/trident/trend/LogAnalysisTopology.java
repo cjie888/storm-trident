@@ -1,10 +1,23 @@
 package com.cjie.storm.trident.trend;
 
 import backtype.storm.Config;
+import backtype.storm.LocalCluster;
 import backtype.storm.StormSubmitter;
 import backtype.storm.generated.StormTopology;
+import backtype.storm.tuple.Fields;
+import com.cjie.storm.trident.trend.filter.BooleanFilter;
+import com.cjie.storm.trident.trend.function.JsonProjectFunction;
+import com.cjie.storm.trident.trend.function.MovingAverageFunction;
+import com.cjie.storm.trident.trend.function.ThresholdFilterFunction;
 import com.cjie.storm.trident.trend.function.XMPPFunction;
+import com.cjie.storm.trident.trend.message.NotifyMessageMapper;
+import storm.kafka.KafkaConfig;
+import storm.kafka.trident.OpaqueTridentKafkaSpout;
+import storm.kafka.trident.TridentKafkaConfig;
+import storm.trident.Stream;
 import storm.trident.TridentTopology;
+
+import java.util.Arrays;
 
 /**
  * Created with IntelliJ IDEA.
@@ -16,17 +29,16 @@ import storm.trident.TridentTopology;
 public class LogAnalysisTopology {
     public static StormTopology buildTopology() {
         TridentTopology topology = new
-                TridentTopology();    /*
-        StaticHosts kafkaHosts =
+                TridentTopology();
+        KafkaConfig.StaticHosts kafkaHosts =
                 KafkaConfig.StaticHosts.fromHostString(Arrays.asList(new String[]{"localhost"}), 1);
         TridentKafkaConfig spoutConf = new
                 TridentKafkaConfig(kafkaHosts, "log-analysis");
-        spoutConf.scheme = new StringScheme();
+        //spoutConf.scheme = new StringScheme();
         spoutConf.forceStartOffsetTime(-1);
         OpaqueTridentKafkaSpout spout = new
                 OpaqueTridentKafkaSpout(spoutConf);
-        Stream spoutStream =
-                topology.newStream("kafka-stream", spout);
+        Stream spoutStream = topology.newStream("kafka-stream", spout);
         Fields jsonFields = new Fields("level",
                 "timestamp", "message", "logger");
         Stream parsedStream = spoutStream.each(new
@@ -51,7 +63,7 @@ public class LogAnalysisTopology {
                         BooleanFilter());
         filteredStream.each(filteredStream.getOutputFields(
         ), new XMPPFunction(new NotifyMessageMapper()), new
-                Fields());   */
+                Fields());
         return topology.build();
     }
     public static void main(String[] args) throws
@@ -67,9 +79,9 @@ public class LogAnalysisTopology {
                 "tgoetz@budreau.local");
         conf.setMaxSpoutPending(5);
         if (args.length == 0) {
-           // LocalCluster cluster = new LocalCluster();
-            //cluster.submitTopology("log-analysis",
-            //        conf, buildTopology());
+           LocalCluster cluster = new LocalCluster();
+           cluster.submitTopology("log-analysis",
+                    conf, buildTopology());
         } else {
             conf.setNumWorkers(3);
             StormSubmitter.submitTopology(args[0],
