@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration>
+    <appender name="KAFKA" class="com.cjie.storm.trident.trend.logappender.KafkaAppender">
+        <topic>log-analysis</topic>
+        <zookeeperHost>testserver:2181</zookeeperHost>
+        <formatter class="com.cjie.storm.trident.trend.logappender.JsonFormatter">
+            <!--
+            Whether we expect the log message to be JSON  encoded or not.
+            If set to "false", the log message will be
+            treated as a string, and wrapped in quotes. Otherwise
+            it will be treated as a parseable JSON object.
+            -->
+            <expectJson>false</expectJson>
+        </formatter>
+    </appender>
+    <root level="debug">
+        <appender-ref ref="KAFKA" />
+    </root>
+    <logger name="com.cjie.storm.trident.trend.RogueApplication" additivity="false">
+        <level value="DEBUG"/>
+        <appender-ref ref="KAFKA" />
+    </logger>
+</configuration>
