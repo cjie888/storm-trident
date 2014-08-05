@@ -53,8 +53,7 @@ public class LogAnalysisTopology {
                 Fields("timestamp"),
                 new MovingAverageFunction(ewma,
                         EWMA.Time.MINUTES), new Fields("average"));
-        ThresholdFilterFunction tff = new
-                ThresholdFilterFunction(50D);
+        ThresholdFilterFunction tff = new ThresholdFilterFunction(50D);
         Stream thresholdStream =
                 averageStream.each(new Fields("average"), tff, new
                         Fields("change", "threshold"));

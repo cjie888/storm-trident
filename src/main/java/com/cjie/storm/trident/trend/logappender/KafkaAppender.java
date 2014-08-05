@@ -4,10 +4,9 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import com.cjie.storm.trident.trend.message.MessageFormatter;
 import kafka.javaapi.producer.Producer;
+import kafka.javaapi.producer.ProducerData;
 import kafka.producer.ProducerConfig;
-import kafka.producer.ProducerData;
 
-import java.util.List;
 import java.util.Properties;
 
 
@@ -71,11 +70,18 @@ public class KafkaAppender extends
        String payload = this.formatter.format(event);
        ProducerData<String, String> data = new
                ProducerData<String, String>(this.topic, payload);
-       this.producer.send((List<kafka.javaapi.producer.ProducerData<String,String>>) data);
+       this.producer.send(data);
     }
     public static void main(String[] args) {
-        KafkaAppender kafkaAppender = new KafkaAppender();
-        kafkaAppender.setZookeeperHost("testserver:2181");
-        kafkaAppender.start();
+        Properties props = new Properties();
+        props.put("zk.connect", "testserver:2181");
+        props.put("serializer.class",
+                "kafka.serializer.StringEncoder");
+        ProducerConfig config = new ProducerConfig(props);
+        Producer producer = new Producer<String, String>(config);
+        String payload = String.format("abc%s","test");
+        ProducerData<String, String> data = new
+                ProducerData<String, String>("mytopic", payload);
+        producer.send(data);
     }
 }
