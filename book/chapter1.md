@@ -1,4 +1,4 @@
-# 第一章 分布式单词记数
+# 第一章 分布式单词计数
 本章，主要介绍使用storm开发分布式流处理应用的基本概念。我们将构建一个统计持续流动的句子中单词个数的简单应用。通过本章的学习，你将了解到设计一个复杂流计算系统所学需要的多种结构，技术和模式。
 
 我们将首先介绍Storm的数据结构，接下来实现一个完全成熟的Storm应用的各个组件。本章结束,你将基本了解Storm计算结构,搭建开发环境,掌握开发和调试storm应用程序的基本技术。
@@ -138,22 +138,41 @@ is listed in Example 1.1.
             "don't have a cow man",
             "i don't think i like fleas"
         };
-	    private int index = 0;
-	
-	    public void declareOutputFields(OutputFieldsDeclarer declarer) {
-	        declarer.declare(new Fields("sentence"));
-	    }
-	
-	    public void open(Map config, TopologyContext
-	            context, SpoutOutputCollector collector) {
-	        this.collector = collector;
-	    }
-	    public void nextTuple() {
-	        this.collector.emit(new Values(sentences[index]));
-	        index++;
-	        if (index >= sentences.length) {
-	            index = 0;
-	        }
-	        Utils.sleep(1);
-	    }
+        private int index = 0;
+
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+            declarer.declare(new Fields("sentence"));
+        }
+
+        public void open(Map config, TopologyContext
+                context, SpoutOutputCollector collector) {
+            this.collector = collector;
+        }
+        public void nextTuple() {
+            this.collector.emit(new Values(sentences[index]));
+            index++;
+            if (index >= sentences.length) {
+                index = 0;
+            }
+            Utils.sleep(1);
+        }
     }
+
+
+BaseRichSpout类是一个方便的类，它实现了ISpout和IComponent接口并提供默认的在本例中我们不需要的方法。使用这个类，我们需只专注于我们所需要的方法。
+
+
+declareOutputFields()方法是Storm IComponent接口中定义的接口，所有的Storm组件(包括Spout和bolt)必须实现该方法,它用于告诉Storm流组件将会发出的每个流的元组将包含的字段。在这种情况下,我们定义的spout将发射一个包含一个字段(“sentence”)的单一(默认)的元组流。
+
+
+open()方法中是ISpout中定义的接口，在Spout组件初始化时被调用。open()方法接受三个参数:一个包含Storm配置的Map,一个TopologyContext对象,它提供了关于组件在一个拓扑中的上下文信息,和SpoutOutputCollector对象提供发射元组的方法。在这个例子中,我们不需要执行初始化,因此,open()实现简单的存储在一个实例变量the SpoutOutputCollector对象的引用。
+
+nextTuple()方法是任何Spout实现的核心。Storm调用这个方法来请求Spout OutputCollector来发出输出元组。在这里,我们只是发出句子的当前索引并增加该索引。
+
+####实现split sentence bolt
+
+The SplitSentenceBolt 的实现见Example 1.2.
+
+##### Example 1.2 – SplitSentenceBolt.java
+
+BaseRichBolt类是另一个便利类，它实现IComponent和IBolt接口。扩展这个类使我们不必实现我们不关心的方法,让我们专注于我们所需要的功能。
