@@ -72,7 +72,6 @@ SentenceSpout类只会发出一连串的单值元组，名字为“sentence”�
 
 ####单词统计bolt
 
-
 单词统计Spout订阅SplitSentenceBolt类的输出,持续对它收到的特定词记数。每当它收到元组,它将增加与单词相关联计数器,并发出当前这个词和当前记数:
 
     { "word" : "dog", "count" : 5 }
@@ -161,9 +160,7 @@ is listed in Example 1.1.
 
 BaseRichSpout类是一个方便的类，它实现了ISpout和IComponent接口并提供默认的在本例中我们不需要的方法。使用这个类，我们需只专注于我们所需要的方法。
 
-
 declareOutputFields()方法是Storm IComponent接口中定义的接口，所有的Storm组件(包括Spout和bolt)必须实现该方法,它用于告诉Storm流组件将会发出的每个流的元组将包含的字段。在这种情况下,我们定义的spout将发射一个包含一个字段(“sentence”)的单一(默认)的元组流。
-
 
 open()方法中是ISpout中定义的接口，在Spout组件初始化时被调用。open()方法接受三个参数:一个包含Storm配置的Map,一个TopologyContext对象,它提供了关于组件在一个拓扑中的上下文信息,和SpoutOutputCollector对象提供发射元组的方法。在这个例子中,我们不需要执行初始化,因此,open()实现简单的存储在一个实例变量the SpoutOutputCollector对象的引用。
 
@@ -197,7 +194,6 @@ The SplitSentenceBolt 的实现见Example 1.2.
 BaseRichBolt类是另一个便利类，它实现IComponent和IBolt接口。扩展这个类使我们不必实现我们不关心的方法,让我们专注于我们所需要的功能。
 
 IBolt接口中的prepare()方法类似于ISpout 的open()方法。这里一般完成在blot的初始化时的资源初始化,比如数据库连接。像SentenceSpout类一样,SplitSentenceBolt类不需要太多的初始化,所以prepare()方法只保存OutputCollector对象的引用。
-
 
 在declareOutputFields()方法中,SplitSentenceBolt类定义一个元组流,每个包含一个字段(“word”)。
 
@@ -234,4 +230,48 @@ WordCountBolt类(Example 1.3)是拓扑组件,实际上是维护了单词数。�
         public void declareOutputFields(OutputFieldsDeclarer declarer) {
             declarer.declare(new Fields("word", "count"));
         }
+    }
+
+
+####实现report bolt
+
+ReportBolt类的目的是产生每个单词的报告。像WordCountBolt类一样,它使用一个HashMap<Stirng,Long>对象来记录数量,但在这种情况下,它只是存储收到counter bolt的数字。
+
+到目前为止，report bolt与其他bolt之间的一个区别它是一个终止bolt，它只接收元组。因为它不会发出任何流,所以declareOutputFields()方法是空的。
+
+report bolt也介实现了了IBolt中定义的接口cleanup()方法。Storm在bolt即将关闭时调用这个方法。我们利用cleanup()方法以一个方便的方式在拓扑关闭时输出最后计数。但通常情况下,cleanup()方法用于释放资源的bolt,如打开的文件或数据库连接。
+
+一个重要的事情一定要记住关于IBolt.cleanup()方法是没有保证的，当Storm拓扑在当一个集群上运行。在下一行我们谈论Storm的容错机制我们将讨论背后的原因。但是对于本例,我们在开发模式下运行cleanup()方法是保证运行的。
+
+ReportBolt类的完整源代码见Example 1.4.
+
+####Example 1.4 – ReportBolt.java
+
+    public class ReportBolt extends BaseRichBolt {
+        private HashMap<String, Long> counts = null;
+    
+        public void prepare(Map config, TopologyContext context, OutputCollector collector) {
+            this.counts = new HashMap<String, Long>();
+        }
+        public void execute(Tuple tuple) {
+            String word = tuple.getStringByField("word");
+            Long count = tuple.getLongByField("count");
+            this.counts.put(word, count);
+        }
+    
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+           // this bolt does not emit anything
+        }
+    
+        public void cleanup() {
+            System.out.println("--- FINAL COUNTS ---");
+            List<String> keys = new ArrayList<String>();
+            keys.addAll(this.counts.keySet());
+            Collections.sort(keys);
+            for (String key : keys) {
+                System.out.println(key + " : " + this.counts.get(key));
+            }
+            System.out.println("--------------");
+        }
+    
     }
