@@ -113,7 +113,7 @@ SentenceSpout类只会发出一连串的单值元组，名字为“sentence”�
 ####注意
 ####下载示例代码
 
-如果你已经购买Packt的书，您可以使用你的账户从http://www.packtpub.com下载所有中示例代码文件。如果你在其他地方买的这本书,你可以访问http://www.packtpub.com/并注册，会把文件直接邮件给你。
+如果你已经购买Packt的书，您可以使用你的账户从http://www.packtpub.com 下载所有中示例代码文件。如果你在其他地方买的这本书,你可以访问http://www.packtpub.com/并注册，会把文件直接邮件给你。
 
 Maven将下载Storm及其所有依赖项。项目已经建立,我们现在就开始写我们的Storm应用程序。
 
@@ -175,4 +175,63 @@ The SplitSentenceBolt 的实现见Example 1.2.
 
 ##### Example 1.2 – SplitSentenceBolt.java
 
+    public class SplitSentenceBolt extends BaseRichBolt {
+        private OutputCollector collector;
+        public void prepare(Map config, TopologyContext
+                context, OutputCollector collector) {
+            this.collector = collector;
+        }
+    
+        public void execute(Tuple tuple) {
+            String sentence = tuple.getStringByField("sentence");
+            String[] words = sentence.split(" ");
+            for(String word : words){
+                this.collector.emit(new Values(word));
+            }
+        }
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+            declarer.declare(new Fields("word"));
+        }
+    }
+
 BaseRichBolt类是另一个便利类，它实现IComponent和IBolt接口。扩展这个类使我们不必实现我们不关心的方法,让我们专注于我们所需要的功能。
+
+IBolt接口中的prepare()方法类似于ISpout 的open()方法。这里一般完成在blot的初始化时的资源初始化,比如数据库连接。像SentenceSpout类一样,SplitSentenceBolt类不需要太多的初始化,所以prepare()方法只保存OutputCollector对象的引用。
+
+
+在declareOutputFields()方法中,SplitSentenceBolt类定义一个元组流,每个包含一个字段(“word”)。
+
+SplitSentenceBolt核心功能是在类IBolt定义execute()方法。调用此方法每次Bolt从流接收一个订阅的元组。在这种情况下,它在收到的元组中查找“sentence”的值,并将该值拆分成单个的词,然后按单词发出新的tuple。
+
+####实现word count bolt
+
+WordCountBolt类(Example 1.3)是拓扑组件,实际上是维护了单词数。在bolt的prepare()方法中,我们实例化一个实例HashMap<String,Long>,将存储所有单词和相应的数量。最常见的做法在prepare（）方法中来实例化实例变量的。这种模式背后的原因在于部署拓扑时,其组件spout和bolt是在网络上发送的序列化的实例变量。如果spout或bolt有任何non-serializable实例变量在序列化之前被实例化(例如,在构造函数中创建)将抛出NotSerializableException并且拓扑将无法发布。在这种情况下,因为HashMap <String,Long>是可序列化的,我们可以安全地在构造函数中实例化它。然而,一般来说,最好是限制构造函数参数为原始和可序列化的对象，如果是non-serializable对象，则应在prepare()方法中实例化。
+
+在declareOutputFields()方法,WordCountBolt类声明一个元组的流,将包含收到这个词和相应的计数。在execute()方法中,我们查找的收到的单词的计数(如果不存在，初始化为0)，然后增加计数并存储,发出一个新的词和当前计数组成的二元组。发射计数作为流允许拓扑的其他bolt订阅和执行额外的处理。
+
+#####Example 1.3 –WordCountBolt.java
+
+    public class WordCountBolt extends BaseRichBolt {
+        private OutputCollector collector;
+        private HashMap<String, Long> counts = null;
+        public void prepare(Map config, TopologyContext
+                context, OutputCollector collector) {
+            this.collector = collector;
+            this.counts = new HashMap<String, Long>();
+        }
+    
+        public void execute(Tuple tuple) {
+            String word = tuple.getStringByField("word");
+            Long count = this.counts.get(word);
+            if(count == null){
+                count = 0L;
+            }
+            count++;
+            this.counts.put(word, count);
+            this.collector.emit(new Values(word, count));
+        }
+    
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+            declarer.declare(new Fields("word", "count"));
+        }
+    }
