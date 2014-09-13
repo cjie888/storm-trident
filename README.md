@@ -10,8 +10,6 @@ storm-trident
 
 ### [第三章 Trident拓扑和传感器数据](book/chapter3.md)
 
-### [第四章 实时时间趋势分析](book/chapter4.md)
-
 ### [第四章 实时趋势分析](book/chapter4.md)
 
 ### [第五章 实时图分析](book/chapter5.md)
