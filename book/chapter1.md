@@ -318,3 +318,66 @@ ReportBolt类的完整源代码见Example 1.4.
             cluster.shutdown();
         }
     }
+
+
+Storm拓扑通常在Java main()方法定义和运行(或提交如果拓扑被部署到集群)。在这个例子中,我们首先定义字符串常量,这将作为我们的唯一标识Storm组件。在main()方法开始实例化我们的spout和bolts并创建了一个TopologyBuilder实例。TopologyBuilder类提供了流-style API定义组件之间的数据流的拓扑。我们注册这个sentence spout并给它分配一个惟一的ID:
+
+    builder.setSpout(SENTENCE_SPOUT_ID, spout);
+
+
+下一步是注册SplitSentenceBolt并建立一个订阅SentenceSpout发出的流类:
+    
+    builder.setBolt(SPLIT_BOLT_ID, splitBolt).shuffleGrouping(SENTENCE_SPOUT_ID);
+
+setBolt()方法会注册一个bolt给TopologyBuilder类并返回一个实例BoltDeclarer，它为bolt暴露了定义输入源方法。这里我们通过定义的shuffleGrouping()方法为SentenceSpout和惟一的ID对象建立关系。shuffleGrouping()方法告诉Storm 混排SentenceSpout类发出的元组和均匀分发它们给SplitSentenceBolt对象的之一实例。我们稍后将详细解释流分组并讨论Storm的并行性。
+
+下一行建立SplitSentenceBolt类和theWordCountBolt类之间的连接:
+
+    builder.setBolt(COUNT_BOLT_ID, countBolt).fieldsGrouping(
+        SPLIT_BOLT_ID, new Fields("word"));
+
+您将了解,有些时候包含某些数据的元组必须路由到一个特定的实例。在这里,我们使用BoltDeclarer类的fieldsGrouping ()方法,以确保所有元组包含相同的“单词”值路由到同一个WordCountBolt实例。
+
+最后一步，我们把WordCountBolt实例定义的数据流的元组发到ReportBolt类实的例。在这种情况下,我们希望WordCountBolt发出的所有元组路由到一个ReportBolt的任务。这种行为由globalGrouping()方法完成,如下:
+    
+    builder.setBolt(REPORT_BOLT_ID, reportBolt).globalGrouping(COUNT_BOLT_ID);
+
+
+与我们的数据流定义一样,运行我们的单词计算的最后一步是建立拓扑,并提交到集群中:
+
+    Config config = new Config();
+    LocalCluster cluster = new LocalCluster();
+    cluster.submitTopology(TOPOLOGY_NAME, config,
+            builder.createTopology());
+    Utils.sleep(10000);
+    cluster.killTopology(TOPOLOGY_NAME);
+    cluster.shutdown();
+
+这里,我们在本地模式下运行Storm，在我们本地开发环境使用Storm LocalCluster类来模拟一个完整的Storm集群。storm本地模式是一种方便的方式来开发和测试应用程序，在部署到分布式集群前。本地模式还允许您在IDE内运行Storm拓扑,设置断点,暂停执行,检查变量和分析应用程序找出性能瓶颈，这些是Storm集群说做不到的。
+
+在本例中,我们创建一个LocalCluster实例并调用具有拓扑名称的submitTopology()方法,它是backtype.storm.Config实例。TopologyBuilder类的createTopology()方法返回的Topology对象。在下一章，您将看到submitTopology()方法用于在本地部署拓扑模式相同的签名方法也可在部署拓扑到远程(分布式)模式。
+
+
+Storm的Config类仅仅是HashMap<String，Object>的之列,它定义了一系列配置Storm拓扑的运行时行为具体常量和方便的方法。当提交一个拓扑时,Storm将合并其预定义的默认配置值和Congif实例的内容传递给submitTopology()方法,并将结果分别传递给拓扑的spout的open()和bolt的prepare()方法。在这个意义上,配置参数的配置对象表示一组全局拓扑中的所有组件。
+
+我们现在将好运行WordCountTopology类。main()方法将提交拓扑,等待它运行十秒后,杀死(取消)拓扑,最后关闭本地集群。当程序运行完成后,您应该在控制台看到输出类似如下信息:
+
+    --- FINAL COUNTS ---
+    a : 1426
+    ate : 1426
+    beverages : 1426
+    cold : 1426
+    cow : 1426
+    dog : 2852
+    don't : 2851
+    fleas : 2851
+    has : 1426
+    have : 1426
+    homework : 1426
+    i : 4276
+    like : 2851
+    man : 1426
+    my : 2852
+    the : 1426
+    think : 1425
+    --------------
