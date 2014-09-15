@@ -357,7 +357,6 @@ setBolt()方法会注册一个bolt给TopologyBuilder类并返回一个实例Bolt
 
 在本例中,我们创建一个LocalCluster实例并调用具有拓扑名称的submitTopology()方法,它是backtype.storm.Config实例。TopologyBuilder类的createTopology()方法返回的Topology对象。在下一章，您将看到submitTopology()方法用于在本地部署拓扑模式相同的签名方法也可在部署拓扑到远程(分布式)模式。
 
-
 Storm的Config类仅仅是HashMap<String，Object>的之列,它定义了一系列配置Storm拓扑的运行时行为具体常量和方便的方法。当提交一个拓扑时,Storm将合并其预定义的默认配置值和Congif实例的内容传递给submitTopology()方法,并将结果分别传递给拓扑的spout的open()和bolt的prepare()方法。在这个意义上,配置参数的配置对象表示一组全局拓扑中的所有组件。
 
 我们现在将好运行WordCountTopology类。main()方法将提交拓扑,等待它运行十秒后,杀死(取消)拓扑,最后关闭本地集群。当程序运行完成后,您应该在控制台看到输出类似如下信息:
@@ -381,3 +380,87 @@ Storm的Config类仅仅是HashMap<String，Object>的之列,它定义了一系�
     the : 1426
     think : 1425
     --------------
+
+###Storm并行度
+
+前面介绍到,Storm允许计算水平扩展到多台机器,将计算划分为多个独立的任务在集群上并行执行。在风暴中,任务只是在集群中运行的一个Spout的bolt实例。
+
+理解并行性是如何工作的,我们必须首先解释一个Stormn集群拓扑参与执行的四个主要组件:
+·Nodes(机器):这些只是配置为Storm集群参与执行拓扑的部分的机器。Storm集群包含一个或多个节点来完成工作。
+·Workers(JVM):这些是在一个节点上运行独立的JVM进程。每个节点配置一个或更多运行的worker。一个拓扑可以请求一个或更多的worker分配给它。
+·Executors(线程):这些是worker运行在JVM进程一个Java线程。多个任务可以分配给一个Executor。除非显式重写,Storm将分配一个任务给一个Executor。
+·Tasks(Spout/Bolt实例):任务是Spout和bolt的实例，在executor线程中运行nextTuple()和executre()方法。
+
+####WordCountTopology并行性
+
+到目前为止,在我们的单词计数的例子中,我们没有显式地使用任何Storm的并行api;相反,我们允许Storm使用其默认设置。在大多数情况下,除非覆盖,Storm将默认使用最大并行性设置。
+
+改变拓扑结构的并行设置之前,让我们考虑拓扑在默认设置下是如何将执行的。假设我们有一台机器(节点),指定一个worker的拓扑,并允许Storm每一个任务一个executor执行,执行我们的拓扑，将会如下:
+
+![Topology execution](./pic/1/topology_execution.png)
+
+正如您可以看到的,并行性只有线程级别。每个任务运行在一个JVM的一个单独的线程内。我们怎样才能利用我们手头的硬件更有效地提高并行性?让我们开始通过增加worker和executors的数量来运行我们的拓扑。
+
+####在拓扑中增加worker
+
+分配额外的worker是一个增加拓扑计算能力的一种简单方法,Storm提供了通过其API或纯粹配置来更改这两种方式。无论我们选择哪一种方法,我们的组件上Spout的和bolt没有改变,并且可以重复使用。
+
+以前版本的字数统计拓扑中,我们介绍了配置对象,在部署时传递到submitTopology()方法,但它基本上未使用。增加分配给一个拓扑中worker的数量,我们只是调用Config对象的setNumWorkers()方法:
+    
+    Config config = new Config();
+    config.setNumWorkers(2);
+
+这个分配两个Worker的拓扑结构而不是默认的。这将计算资源添加到我们的拓扑中,为了有效地利用这些资源,我们也会想调整executors的数量和我们的拓扑每个executor的task数量。
+
+####配置executor数和task数
+
+正如我们所看到的,默认情况下，在一个拓扑定义时Storm为每个组件创建一个单一的任务,为每个任务分配一个executor。Storm的并行API提供了修改这种行为的方式,允许您设置的每个任务的executor数和每个exexutor的task数量。
+
+executor的数量分配到一个给定的组件是通过修改配置当定义一个流分组并行性时。为了说明这个特性,让我们
+修改我们的拓扑SentenceSpout并行度分配两个任务,每个任务分配自己的executor线程:
+
+    builder.setSpout(SENTENCE_SPOUT_ID, spout, 2);
+
+如果我们使用一个worker,执行我们的拓扑现在看起来像下面的样子:
+
+![Two spout tasks](./pic/1/two_spout_tasks.png)
+
+
+接下来,我们将设置分割句子bolt为两个有四个task的executor执行。每个executor线程将被指派两个任务执行(4 / 2 = 2)。我们还将配置字数统计bolt运行四个任务,每个都有自己的执行线程:
+
+    builder.setBolt(SPLIT_BOLT_ID, splitBolt, 2).setNumTasks(4)
+        .shuffleGrouping(SENTENCE_SPOUT_ID);
+    builder.setBolt(COUNT_BOLT_ID, countBolt, 4)
+        .fieldsGrouping(SPLIT_BOLT_ID, newFields("word"));
+
+有两个worker,拓扑的执行将看起来像下面的图:
+
+![Parallelism with multiple workers](./pic/1/muliti_worker.png)
+
+
+拓扑结构的并行性增加,运行更新的WordCountTopology类为每个单词产生了更高的总数量:
+
+    --- FINAL COUNTS ---
+    a : 2726
+    ate : 2722
+    beverages : 2723
+    cold : 2723
+    cow : 2726
+    dog : 5445
+    don't : 5444
+    fleas : 5451
+    has : 2723
+    have : 2722
+    homework : 2722
+    i : 8175
+    like : 5449
+    man : 2722
+    my : 5445
+    the : 2727
+    think : 2722
+    --------------
+
+因为Spout无限发出数据,直到topology被kill,实际的数量将取决于您的计算机的速度和其他什么进程运行它,但是你应该看到一个总体增加的发射和处理数量。
+
+重要的是要指出,增加woker的数量并不会影响一个拓扑在本地模式下运行。一个拓扑在本地模式下运行总是运行在一个单独的JVM进程,所以只有任务和executro并行设置才会有影响。Storm的本地模式提供一个近似的集群行为在你测试在一个真正的应用程序集群生产环境之前对开发是很有用的。
+
