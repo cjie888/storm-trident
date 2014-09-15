@@ -357,6 +357,7 @@ setBolt()方法会注册一个bolt给TopologyBuilder类并返回一个实例Bolt
 
 在本例中,我们创建一个LocalCluster实例并调用具有拓扑名称的submitTopology()方法,它是backtype.storm.Config实例。TopologyBuilder类的createTopology()方法返回的Topology对象。在下一章，您将看到submitTopology()方法用于在本地部署拓扑模式相同的签名方法也可在部署拓扑到远程(分布式)模式。
 
+
 Storm的Config类仅仅是HashMap<String，Object>的之列,它定义了一系列配置Storm拓扑的运行时行为具体常量和方便的方法。当提交一个拓扑时,Storm将合并其预定义的默认配置值和Congif实例的内容传递给submitTopology()方法,并将结果分别传递给拓扑的spout的open()和bolt的prepare()方法。在这个意义上,配置参数的配置对象表示一组全局拓扑中的所有组件。
 
 我们现在将好运行WordCountTopology类。main()方法将提交拓扑,等待它运行十秒后,杀死(取消)拓扑,最后关闭本地集群。当程序运行完成后,您应该在控制台看到输出类似如下信息:
@@ -464,3 +465,97 @@ executor的数量分配到一个给定的组件是通过修改配置当定义一
 
 重要的是要指出,增加woker的数量并不会影响一个拓扑在本地模式下运行。一个拓扑在本地模式下运行总是运行在一个单独的JVM进程,所以只有任务和executro并行设置才会有影响。Storm的本地模式提供一个近似的集群行为在你测试在一个真正的应用程序集群生产环境之前对开发是很有用的。
 
+###Storm流分组
+
+基于前面的例子,你可能想知道为什么我们不增加ReportBolt的并行性?答案是,它没有任何意义。要理解为什么,你需要理解Storm流分组的概念。
+
+流分组定义了在一个拓扑中一个流的元组是如何分布在bolt的任务的。例如,在并行版本的字数统计拓扑,在拓扑的SplitSentenceBolt类被分配了四个任务。流分组决定哪一个任务将获得哪一个给定的元组。
+
+
+Storm定义了7个内置流分组:
+·随机分组:随机分配整个目标bolt的任务,这样每个元组bolt接收同等数量的元组。
+·字段分组:该元组基于分组字段中指定的值路由bolt任务。例如,如果一个流组合“word”字段,“word”相同的元组值字段将总是被路由到相同的bolt的任务。
+·All分组:这复制bolt任务所有的元组,每个任务将获得元组的一个副本。
+·Global分组:这个把所有元组路由到一个任务中,选择最低的任务任务ID值。注意,设置bolt的并行性或任务的数量在使用全球分组是没有意义的,因为所有元组将被路由到相同的bolt的任务。Global分组应谨慎使用,因为它将所有元组路由到一个JVM实例,可能造成在特定JVM/机器在一个集群中形成拥塞。
+· None分组:None分组的功能相当于随机分组。它被保留以供将来使用。
+·直接分组:直接分组,源决定哪个组件将接收一个给定的元组通过调用emitDirect()方法。它只能用于定义直接流。
+· Local or shuffle grouping: 本地或随机分组类似于随机分组,但把元组shuffle到bolt任务运行在相同的工作进程中,如果可以。否则,它将退回到随机分组的行为。根据拓扑结构的并行性,本地或随机分组可以通过限制网络提高拓扑传输性能。
+
+除了预定义的分组,您可以定义您自己的流分组通过实现CustomStreamGrouping接口:
+
+    public interface CustomStreamGrouping extends Serializable {
+        void prepare(WorkerTopologyContext context, GlobalStreamId stream, List<Integer> targetTasks);
+        List<Integer> chooseTasks(int taskId, List<Object> values);
+    }
+
+prepare()方法在运行时被调用，它初始化分组信息分组的实现可以使用它来决定元组元组怎样被任务说接受。WorkerTopologyContext对象提供关于拓扑的上下文信息,和GlobalStreamId对象提供元数据流
+分组。最有用的参数是targetTasks,它是分组需要考虑所有任务标识符列表。你通常会将targetTasksparameter作为一个实例变量引用存储在chooseTasks()方法的实现中。
+
+chooseTasks()方法返回一个应发送的元组任务标识符列表的。它的参数是发出元组组件的任务标识符和元组的值。
+
+为了说明流分组的重要性,让我们引入一个错误拓扑。先修改SentenceSpout 的nextTuple()方法,它只发出每个句子一次:
+
+    public void nextTuple() {
+        if(index < sentences.length){
+            this.collector.emit(new Values(sentences[index]));
+            index++;
+        }
+        Utils.waitForMillis(1);
+    }
+
+现在运行拓扑得到以下输出:
+
+    --- FINAL COUNTS ---
+    a : 2
+    ate : 2
+    beverages : 2
+    cold : 2
+    cow : 2
+    dog : 4
+    don't : 4
+    fleas : 4
+    has : 2
+    have : 2
+    homework : 2
+    i : 6
+    like : 4
+    man : 2
+    my : 4
+    the : 2
+    think : 2
+    --------------
+
+现在修改CountBolt的field分组为参数随机分组并重新运行拓扑:
+
+    builder.setBolt(COUNT_BOLT_ID, countBolt, 4)
+        .shuffleGrouping(SPLIT_BOLT_ID);
+
+输出应该类似于下面:
+
+    --- FINAL COUNTS ---
+    a : 1
+    ate : 2
+    beverages : 1
+    cold : 1
+    cow : 1
+    dog : 2
+    don't : 2
+    fleas : 1
+    has : 1
+    have : 1
+    homework : 1
+    i : 3
+    like : 1
+    man : 1
+    my : 1
+    the : 1
+    think : 1
+    --------------
+
+我们计算不正确了,因为CountBolt参数是有状态:它保留一个计数为每个收到的单词的。在这种情况下,我们计算的准确性取决于当组件被并行化基于元组的内容分组的能力。引入的错误我们将只显示如果CountBolt参数大于1的并行性。这强调了测试拓扑与各种并行配置的重要性。
+
+####Tip
+
+一般来说,你应该避免将状态信息存储在一个bolt因为任何时间worker或有其任务重新分配失败,该信息将丢失。一个解决方案是定期快照的持久性存储状态信息,比如数据库,所以它可以恢复是否重新分配一个任务。
+
+###消息处理保证
