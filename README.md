@@ -4,11 +4,11 @@ storm-trident
 《Storm Blueprints: Patterns for Distributed Real-time Computation 》一书的源码和翻译
 
 =============
-### [第一章 分布式单词记数](book/chapter1.md)(翻译中)
+### [第一章 分布式单词记数](book/chapter1.md)(已完成，待校对)
 
 ### [第二章 配置Storm集群](book/chapter2.md) (未开始)
 
-### [第三章 Trident拓扑和传感器数据](book/chapter3.md) (未开始)
+### [第三章 Trident拓扑和传感器数据](book/chapter3.md) (进行中)
 
 ### [第四章 实时趋势分析](book/chapter4.md) (未开始)
 

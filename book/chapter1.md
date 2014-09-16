@@ -559,3 +559,136 @@ chooseTasks()方法返回一个应发送的元组任务标识符列表的。它�
 一般来说,你应该避免将状态信息存储在一个bolt因为任何时间worker或有其任务重新分配失败,该信息将丢失。一个解决方案是定期快照的持久性存储状态信息,比如数据库,所以它可以恢复是否重新分配一个任务。
 
 ###消息处理保证
+
+Storm提供一个API,允许您保证Spout发出的一个元组被完全处理。到目前为止,在我们的示例中,我们不担心失败。我们已经看到,Spout流可以分裂和可以生成任意数量的流拓扑结构,根据下bolt的行为。在发生故障时,会发生什么呢?作为一个例子,考虑一个bolt持久化元组数据信息基于数据库。我们该如何处理数据库更新失败的情况呢?
+
+####Spout的可靠性
+
+在Storm中,保证消息处理从Spout开始。Spout支持保证处理需要一种方法来跟踪发出的元组,如果下游处理完元组则回发一个元组,或任何元组失败。子元组可以被认为是任何来自Spout元组的结果元组。看的另一种方法是考虑Spout流(作为一个元组树的树干(下图所示):
+
+![Tuple tree](./pic/1/tuple_tree.png)
+
+在前面的图中,实线代表原树干spoout发出的元组,虚线代表来自最初的元组的元组。结果图代表元组树。保证处理,树中的每个bolt可以确认(ack)或fail一个元组。如果所有bolt在树上ack元组来自主干tuple,spout的ack方法将调用表明消息处理完成。如果任何bolt在树上明确fail一个元组,或如果处理元组树超过了超时时间,spout的fail方法将被调用。
+
+Storm的ISpout接口定义了涉及可靠性的三个方法API:nextTuple,ack,fail。
+
+    public interface ISpout extends Serializable {
+        void open(Map conf, TopologyContext context, SpoutOutputCollector collector);
+    
+        void close();
+        void nextTuple();
+        void ack(Object msgId);
+        void fail(Object msgId);
+    }
+
+正如我们所见过的,当Storm要求spout发出一个元组,它调用nextTuple()方法。实现保证处理的第一步是保证元组分配一个惟一的ID并将该值传递给SpoutOutputCollector的emit()方法：
+
+    collector.emit(new Values("value1", "value2") ,msgId);
+
+分配tuple消息ID告诉Storm,Spout想接收通知或元组树完成时如果不能在任何时候如果处理成功,Spout的ack()方法将被调用的消息ID分配给元组。如果处理失败或超时,Spout的失败方法将被调用。
+
+####bolt可靠性
+
+实现一个bolt,保证消息处理涉及两个步骤:
+1。锚定发射传入的元组当发射新的元组时。
+2。确认或失败
+
+锚定一个元组意味着我们创造一个传入的元组和派生的元组之间的联系,这样任何下游bolt预计参与的元组树确认tuple,或让元组失败,或让它超时。
+
+
+你可以锚定一个元组(或元组的列表)通过调用OutputCollector重载方法之一emit:
+
+    collector.emit(tuple, new Values(word));
+
+在这里,我们锚定传入的元组并发射一个新的元组,下游bolt应该确认或失败。另一种形式的emit方法将发出所属的元组:
+
+    collector.emit(new Values(word));
+
+未锚定的元组不参与一个流的可靠性保证。如果一个非锚点元组下游失败,它不会导致原始根元组的重发。
+
+成功处理元组后选择发射新的或派生的元组,一个bolt处理可靠流应该确认输入的元组:
+
+    this.collector.ack(tuple);
+
+如果元组处理失败，这种情况下，spout必须重发(再)元组,bolt应明确失败的元组:
+
+    this.collector.fail(tuple)
+
+如果元组由于超时或通过一个显式的调用处理OutputCollector.fail()方法失败,Spout,最初的元组,发出通知,让它重发tuple,您在稍后就会看到。
+
+####可靠的word count
+
+为了进一步说明可靠性,我们首先加强SentenceSpout类支持保证可靠。它将需要跟踪所有发出的元组并分配每一个惟一的ID,我们将使用一个HashMap < UUID、Values>对象来存储未处理完的元组。对于我们发出的每个元组,我们会分配一个唯一的标识符,并将其存储在我们的未处理完map。当我们收到一个消息的确认,我们将从我们的等待名单删除元组。失败,我们将重复该元组:
+
+
+    public class SentenceSpout extends BaseRichSpout {
+    
+        private ConcurrentHashMap<UUID, Values> pending;
+    
+        private SpoutOutputCollector collector;
+    
+        private String[] sentences = {
+                "my dog has fleas",
+                "i like cold beverages",
+                "the dog ate my homework",
+                "don't have a cow man",
+                "i don't think i like fleas"
+        };
+        private int index = 0;
+    
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+            declarer.declare(new Fields("sentence"));
+        }
+        public void open(Map config, TopologyContext context,
+                         SpoutOutputCollector collector) {
+            this.collector = collector;
+            this.pending = new ConcurrentHashMap<UUID, Values>();
+        }
+    
+        public void nextTuple() {
+            Values values = new Values(sentences[index]);
+            UUID msgId = UUID.randomUUID();
+            this.pending.put(msgId, values);
+            this.collector.emit(values, msgId);
+            index++;
+            if (index >= sentences.length) {
+                index = 0;
+            }
+            Utils.sleep(1);
+        }
+        public void ack(Object msgId) {
+            this.pending.remove(msgId);
+        }
+    
+        public void fail(Object msgId) {
+            this.collector.emit(this.pending.get(msgId), msgId);
+        }
+    }
+
+修改bolt提供保证处理简单涉及锚定出站元组的元组,然后确认收到的元组:
+
+    public class ReliableSplitSentenceBolt extends BaseRichBolt {
+        private OutputCollector collector;
+        public void prepare(Map config, TopologyContext
+                context, OutputCollector collector) {
+            this.collector = collector;
+        }
+    
+        public void execute(Tuple tuple) {
+            String sentence = tuple.getStringByField("sentence");
+            String[] words = sentence.split(" ");
+            for(String word : words){
+                this.collector.emit(tuple, new Values(word));
+            }
+            this.collector.ack(tuple);
+        }
+        public void declareOutputFields(OutputFieldsDeclarer declarer) {
+            declarer.declare(new Fields("word"));
+        }
+    }
+
+###总结
+
+在这一章,我们已经构建了一个简单的分布式计算应用程序使用Stomr的核心API和并覆盖很大一部分Storm的特性集,即使没有安装Storm和部署一个集群。Storm的本地模式是强大的生产力并易于开发,但要想看到Storm的真正的强大和水平可伸缩性，你需要将应用程序部署到一个真正的集群中。
+
+在下一章,我们将介绍安装和设置Storm集群环境的过程并部署一个分布式拓扑环境。
