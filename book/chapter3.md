@@ -36,3 +36,39 @@
 最后,我们将使用一个简单的阈值,以确定是否有爆发。如果一个小时内的出现数的大于阈值,系统将会发送一个报警并发给国家警卫队。
 
 为了维护历史记录,我们也将持久化对于每一个城市,每小时,每种疾病出现的数量。
+
+##Trident拓扑
+
+为了满足这些需求,我们将需要一个统计出现次数拓扑。这可能是一个挑战,而使用标准Storm拓扑因为元组可以重播,导致重复计算。正如我们在接下来的几节中看到的,Trident提供原语来解决这个问题。
+
+我们将使用拓扑如下:
+
+![Trident Topology](./pic/2/trident_topology.jpg)
+
+前面拓扑的代码如下:
+
+    public class OutbreakDetectionTopology {
+        public static StormTopology buildTopology() {
+            TridentTopology topology = new TridentTopology();
+            DiagnosisEventSpout spout = new DiagnosisEventSpout();
+            Stream inputStream = topology.newStream("event",spout);
+
+            // Filter for critical events.
+            inputStream.each(new Fields("event"), new DiseaseFilter()))
+            // Locate the closest city
+            .each(new Fields("event"), new CityAssignment(), new Fields("city"))
+            // Derive the hour segment
+            .each(new Fields("event", "city"), new HourAssignment(), new Fields("hour","cityDiseaseHour"))
+            // Group occurrences in same city and hour
+            .groupBy(new Fields("cityDiseaseHour"))
+            // Count occurrences and persist the results.
+            .persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields("count"))
+            .newValuesStream()
+            // Detect an outbreak
+            .each(new Fields("cityDiseaseHour","count"), new OutbreakDetector(), new Fields("alert"))
+            // Dispatch the alert
+            .each(new Fields("alert"), new DispatchAlert(), new Fields());
+        }
+    }
+
+前面的代码显示了不同的Trident函数之间的连接。首先,DiagnosisEventSpout函数发出事件。事件然后由DiseaseFilter函数过滤,它过滤掉出现的我们不关心的疾病,。在那之后,CityAssignmentfunction使事件与城市相关联。然后,HourAssignment函数分配一小时事件添加一个元组的可以,它包括城市,小时,和疾病的代码。然后我们按这个关键分组,使计数的并持久化这些计数在拓扑persistAggregatefunction一步。然后把计数传递到OutbreakDetectorfunction进行阈值计算,超过阈值时发出警报。最后,DispatchAlert函数接收警报，产生日志消息,并终止程序。在下一节中,我们将深入学习每一个步骤。
