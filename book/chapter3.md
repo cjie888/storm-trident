@@ -43,7 +43,7 @@
 
 我们将使用拓扑如下:
 
-![Trident Topology](./pic/2/trident_topology.jpg)
+![Trident Topology](./pic/3/trident_topology.jpg)
 
 前面拓扑的代码如下:
 
