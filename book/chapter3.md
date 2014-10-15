@@ -270,3 +270,220 @@ diagnosisCode存储为一个字符串,以防系统需求能够处理其他类型
 在这一点上,拓扑能够发出事件。在实际实现中,我们可能把拓扑集成到一个医疗索赔处理引擎或电子健康记录系统中。
 
 ##Trident操作--filters and functions
+
+现在我们已经产生事件,下一步是添加逻辑组件来实现业务流程。在Trident中，这些被称为操作。在我们的拓扑结构,我们使用两种不同类型的操作:filters和functions。
+
+操作是通过方法应用于流对象。在这个例子中,我们使用以下流对象方法:
+
+    public class Stream implements IAggregatableStream {
+        public Stream each(Fields inputFields, Filter filter) {
+        ...
+        }
+    
+        public IAggregatableStream each(Fields inputFields, Function function, Fields functionFields){
+        ...
+       }
+        public GroupedStream groupBy(Fields fields) {
+        ...
+        }
+        public TridentState persistentAggregate(StateFactory stateFactory, CombinerAggregator agg, Fields functionFields) {
+        ...
+        }
+    }
+
+
+注意,在前面的代码方法返回的流对象或TridentState可用于创建额外的流。这样,使用流式Java操作可以链接在一起。让我们再看看关键代码在我们的示例中拓扑:
+
+    inputStream.each(new Fields("event"), new DiseaseFilter())
+    .each(new Fields("event"), new CityAssignment(), new Fields("city"))
+    .each(new Fields("event", "city"),new HourAssignment(), new Fields("hour","cityDiseaseHour"))
+    .groupBy(new Fields("cityDiseaseHour"))
+    .persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields（"count")).newValuesStream()
+    .each(new Fields("cityDiseaseHour", "count"), new OutbreakDetector(), new Fields("alert"))
+    .each(new Fields("alert"), new DispatchAlert(),new Fields());
+
+
+通常,操作通过声明一组输入字段和一组输出字段也被称为功能字段实现。在前面的代码声明的第二线的拓扑,我们希望CityAssignment执行每个元组的流。从这个元组,CityAssignment将操作事件字段和发出功能字段带标签的城市,附加到元组。
+
+每个操作fluent-style语法略有不同,这取决于需要的操作信息。在下面几节中,我们会的
+覆盖不同操作的语法和语义的细节。
+
+###Trident filters
+
+拓扑的第一块逻辑是一个过滤器,它过滤了不关心的疾病事件。在这个例子中,该系统将专注于脑膜炎。从以前的表,脑膜炎的唯一代码是320,321和322。
+
+为了根据代码过滤事件,我们将利用Trident过滤器。Trident通过提供一个BaseFilter类让这变得很容易,我们可以子类来过滤系统并不关心的元组。BaseFilter类实现过滤器接口,它看起来像下面的代码片段:
+
+    public interface Filter extends EachOperation {
+        boolean isKeep(TridentTuple tuple);
+    }
+
+为了过滤流元组,应用程序通过扩展theBaseFilter类简单地实现了这个接口。在这个例子中,我们将使用以下过滤器过滤事件:
+
+    public class DiseaseFilter extends BaseFilter {
+        private static final long serialVersionUID = 1L;
+        private static final Logger LOG =
+                LoggerFactory.getLogger(DiseaseFilter.class);
+    
+        @Override
+        public boolean isKeep(TridentTuple tuple) {
+            DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
+            Integer code = Integer.parseInt(diagnosis.diagnosisCode);
+            if (code.intValue() <= 322) {
+                LOG.debug("Emitting disease [" + diagnosis.diagnosisCode + "]");
+                return true;
+            } else {
+                LOG.debug("Filtering disease [" + diagnosis.diagnosisCode + "]");
+                return false;
+            }
+        }
+    }
+
+
+在前面的代码中,我们将提取DiagnosisEvent类元组和疾病检查代码。因为所有的脑膜炎代码很少
+超过或等于322,我们没有发出任何其他代码,我们简单地检查代码是否小于322来确定事件是否是
+脑膜炎。
+
+过滤操作返回True将导致元组发给下游的流操作。如果方法返回False,tuple不流向下游操作。
+
+在拓扑中,我们应用过滤器为流中的每个元组使用each(inputFields，filter)方法。下面的行
+在我们的拓扑过滤器适用于流:
+
+    inputStream.each(new Fields("event"), new DiseaseFilter())
+
+###Trident functions
+
+除了过滤器,Storm提供了一个接口叫做通用功能。功能类似于Storm bolt,它们消耗元组,可以发出新的元组。一个区别是,Trident函数是附加的。发出的函数的值字段添加到元组。他们不删除或改变现有的字段。
+
+接口函数看起来像下面的代码片段:
+
+    public interface Function extends EachOperation {
+        void execute(TridentTuple tuple, TridentCollector collector);
+    }
+
+类似于Storm bolt,function实现一个方法包含逻辑功能。function实现可以有选择地使用TridentCollector发出tuple传递到function。通过这种方式,function也可以用来过滤元组。
+
+
+在我们的拓扑中，第一个function是CityAssignment函数，它看起来就像下面的代码片段:
+
+    public class CityAssignment extends BaseFunction {
+        private static final long serialVersionUID = 1L;
+        private static final Logger LOG =
+                LoggerFactory.getLogger(CityAssignment.class);
+    
+        private static Map<String, double[]> CITIES =
+                new HashMap<String, double[]>();
+        { // Initialize the cities we care about.
+            double[] phl = { 39.875365, -75.249524 };
+            CITIES.put("PHL", phl);
+            double[] nyc = { 40.71448, -74.00598 };
+            CITIES.put("NYC", nyc);
+            double[] sf = { -31.4250142, -62.0841809 };
+            CITIES.put("SF", sf);
+            double[] la = { -34.05374, -118.24307 };
+            CITIES.put("LA", la);
+        }
+        @Override
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
+            double leastDistance = Double.MAX_VALUE;
+            String closestCity = "NONE";
+            // Find the closest city.
+            for (Map.Entry<String, double[]> city : CITIES.entrySet()) {
+                double R = 6371; // km
+                double x = (city.getValue()[0] - diagnosis.lng) *
+                        Math.cos((city.getValue()[0] + diagnosis.lng) / 2);
+                double y = (city.getValue()[1] - diagnosis.lat);
+                double d = Math.sqrt(x * x + y * y) * R;
+                if (d < leastDistance) {
+                    leastDistance = d;
+                    closestCity = city.getKey();
+                }
+            }
+            // Emit the value.
+            List<Object> values = new ArrayList<Object>();
+            values.add(closestCity);
+            LOG.debug("Closest city to lat=[" + diagnosis.lat +
+                    "], lng=[" + diagnosis.lng + "] == ["
+                    + closestCity + "], d=[" + leastDistance + "]");
+            collector.emit(values);
+        }
+    }
+
+在这个函数中,我们使用一个静态初始化器创建一个我们关心地图的城市。在样例数据,该函数有一个地图包含坐标费城(PHL)、纽约(NYC)、旧金山(SF)和洛杉矶(LA)。
+
+在execute()方法,通过城市和循环功能计算事件和城市之间的距离。在实际系统中,地理空间索引可能会更有效率。
+
+一旦函数确定最接近的城市,将发出该城市的代码在该方法的最后几行。记住,在Trident,而不是
+函数声明将发出什么字段,字段声明时操作是附加到第三个参数的函数调用。
+
+函数的数量字段声明必须与发出的功能的值的数量一致。如果他们不一致,Storm将抛出一个IndexOutOfBoundsException。
+
+在我们的拓扑下一个函数HourAssignment,用于转换从纪元以来时间戳一个小时,然后可以用来组
+事件时间。代码HourAssignment看起来如下:
+    
+    public class HourAssignment extends BaseFunction {
+        private static final long serialVersionUID = 1L;
+        private static final Logger LOG =
+                LoggerFactory.getLogger(HourAssignment.class);
+    
+        @Override
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            DiagnosisEvent diagnosis = (DiagnosisEvent) tuple.getValue(0);
+            String city = (String) tuple.getValue(1);
+            long timestamp = diagnosis.time;
+            long hourSinceEpoch = timestamp / 1000 / 60 / 60;
+            LOG.debug("Key = [" + city + ":" + hourSinceEpoch + "]");
+            String key = city + ":" + diagnosis.diagnosisCode + ":" + hourSinceEpoch;
+            List<Object> values = new ArrayList<Object>();
+            values.add(hourSinceEpoch);
+            values.add(key);
+            collector.emit(values);
+        }
+    }
+
+我们稍微重载这个函数通过发射两个小时一样一个组合键组成的城市,诊断代码和小时。有效,
+这为每个聚合数作为唯一标识符,我们稍后会讨论更多的细节。
+
+拓扑的最后两个函数发现疫情并通知我们。OutbreakDetector类的代码如下:
+
+    public class OutbreakDetector extends BaseFunction {
+        private static final long serialVersionUID = 1L;
+        public static final int THRESHOLD = 10000;
+    
+        @Override
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            String key = (String) tuple.getValue(0);
+            Long count = (Long) tuple.getValue(1);
+            if (count > THRESHOLD) {
+                List<Object> values = new ArrayList<Object>();
+                values.add("Outbreak detected for [" + key + "]!");
+                collector.emit(values);
+            }
+        }
+    }
+
+这个函数提取特定城市的计数,疾病,和小时并检查是否已经超过阈值。如果是这样,它发出一个新的字段
+包含一个警告。在前面的代码中,请注意,此功能有效地充当一个过滤器,但作为一个函数实现,因为我们想要为元组添加一个额外的字段包含警报。由于过滤器不改变元组,我们必须使用一个函数,它允许我们不仅过滤还可添加新字段。
+
+最后的功能在我们的拓扑简单地发出警报(和终止这个项目)。这个拓扑的清单如下:
+
+    public class DispatchAlert extends BaseFunction {
+        private static final long serialVersionUID = 1L;
+        private static final Logger LOG =
+                LoggerFactory.getLogger(CityAssignment.class);
+        @Override
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            String alert = (String) tuple.getValue(0);
+            LOG.error("ALERT RECEIVED [" + alert + "]");
+            LOG.error("Dispatch the national guard!");
+            System.exit(0);
+        }
+    }
+
+这个函数很简单。它只是提取警惕,为消息记录日志,并终止程序。
+
