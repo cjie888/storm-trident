@@ -487,3 +487,30 @@ diagnosisCode存储为一个字符串,以防系统需求能够处理其他类型
 
 这个函数很简单。它只是提取警惕,为消息记录日志,并终止程序。
 
+##Trident aggregators – Combiners and Reducers
+
+类似于函数,聚合器允许拓扑合并元组。不像函数,他们取代元组字段和值。有三种不同的类型
+聚合器:CombinerAggregator ReducerAggregator和Aggregator。
+
+###CombinerAggregator
+
+CombinerAggregator用于合并一组元组为一个字段。它具有以下签名:
+
+    public interface CombinerAggregator {
+        T init (TridentTuple tuple);
+        T combine(T val1, T val2);
+        T zero();
+    }
+
+Storm的每个元组调用init()方法,然后反复调用combine()方法,直到分区处理。combine()方法传入的值结合是部分聚合,合并的结果的值调用init()返回。分区在接下来的部分会详细讨论,但一个分区实际上是一连串的元组的一个子集,驻留在同一个主机上。当合并处理元组的值后,Storm发射合并这些字值作为一个新字段。如果一个分区是空的,那么Storm发出由zero()方法返回的值。
+
+#ReducerAggregator
+
+ReducerAggregator有稍微不同的签名:
+
+    public interface ReducerAggregator<T> extends Serializable {
+        T init();
+        T reduce(T curr, TridentTuple tuple);
+    }
+
+Storm调用init()方法来检索初始值。然后reduce方法被调用处理每个元组直到分区完全处理。第一个参数为reduce()方法累积聚合的部分。实现应该将tuple聚合到返回的部分结果。
