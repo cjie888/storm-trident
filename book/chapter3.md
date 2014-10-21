@@ -504,7 +504,7 @@ CombinerAggregator用于合并一组元组为一个字段。它具有以下签�
 
 Storm的每个元组调用init()方法,然后反复调用combine()方法,直到分区处理。combine()方法传入的值结合是部分聚合,合并的结果的值调用init()返回。分区在接下来的部分会详细讨论,但一个分区实际上是一连串的元组的一个子集,驻留在同一个主机上。当合并处理元组的值后,Storm发射合并这些字值作为一个新字段。如果一个分区是空的,那么Storm发出由zero()方法返回的值。
 
-#ReducerAggregator
+###ReducerAggregator
 
 ReducerAggregator有稍微不同的签名:
 
@@ -514,3 +514,49 @@ ReducerAggregator有稍微不同的签名:
     }
 
 Storm调用init()方法来检索初始值。然后reduce方法被调用处理每个元组直到分区完全处理。第一个参数为reduce()方法累积聚合的部分。实现应该将tuple聚合到返回的部分结果。
+
+###Aggregator
+
+最普通的聚合操作是聚合器。Aggregator签名如下:
+
+	public interface Aggregator<T> extends Operation {
+		T init(Object batchId, TridentCollector collector);
+		void aggregate(T val, TridentTuple tuple, TridentCollector collector);
+		void complete(T val, TridentCollector collector);
+	}
+
+Aggregator接口的aggregate()方法类似于一个Function接口的execute()方法,但它也包含一个值参数。这允许theAggregator积累处理的元组值。注意使用Aggregator,因为收集器传递到aggregate()方法以及complete()方法,您可以发出任何任意数目的元组。
+
+在我们的示例拓扑中,我们利用一个内置的聚合器命名Count。Count实现看起来像下面的代码片段:
+
+	public class Count implements
+	        CombinerAggregator<Long> {
+	    @Override
+	    public Long init(TridentTuple tuple) {
+	        return 1L;
+	    }
+	    @Override
+	    public Long combine(Long val1, Long val2) {
+	        return val1 + val2;
+	    }
+	    @Override
+	    public Long zero() {
+	        return 0L;
+	    }
+	}
+
+我们应用分组和计算在我们的示例中拓扑计算附近出现的一种疾病在特定的时间特定的城市。实现这个目标的代码如下:
+
+	.groupBy(new Fields("cityDiseaseHour"))
+	.persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields（"count")).newValuesStream()
+
+回想一下,Storm分区流在可用的主机。这如下图所示:
+
+![Trident partition](./pic/3/trident_partition.png)
+
+groupBy()方法的强制重新分区数据。共享相同的值的元组根据命名字段分到相同的分区。要做到这一点,Storm必须将相似元组发送到相同的主机。下面的图显示了前面的数据的实现基于我们groupBy()方法:
+
+![Trident group](./pic/3/trident_group.jpg)
+
+重新分区后,聚合函数是在每个分区运行每一组元组。在我们的示例中,我们按城市,小时,和疾病
+代码(使用关键字)分组。然后,Count聚合器执行该分组,进而发出疾病数给下游消费者。
