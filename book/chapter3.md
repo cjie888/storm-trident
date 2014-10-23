@@ -519,36 +519,36 @@ Storm调用init()方法来检索初始值。然后reduce方法被调用处理每
 
 最普通的聚合操作是聚合器。Aggregator签名如下:
 
-	public interface Aggregator<T> extends Operation {
-		T init(Object batchId, TridentCollector collector);
-		void aggregate(T val, TridentTuple tuple, TridentCollector collector);
-		void complete(T val, TridentCollector collector);
-	}
+    public interface Aggregator<T> extends Operation {
+        T init(Object batchId, TridentCollector collector);
+        void aggregate(T val, TridentTuple tuple, TridentCollector collector);
+        void complete(T val, TridentCollector collector);
+    }
 
 Aggregator接口的aggregate()方法类似于一个Function接口的execute()方法,但它也包含一个值参数。这允许theAggregator积累处理的元组值。注意使用Aggregator,因为收集器传递到aggregate()方法以及complete()方法,您可以发出任何任意数目的元组。
 
 在我们的示例拓扑中,我们利用一个内置的聚合器命名Count。Count实现看起来像下面的代码片段:
 
-	public class Count implements
-	        CombinerAggregator<Long> {
-	    @Override
-	    public Long init(TridentTuple tuple) {
-	        return 1L;
-	    }
-	    @Override
-	    public Long combine(Long val1, Long val2) {
-	        return val1 + val2;
-	    }
-	    @Override
-	    public Long zero() {
-	        return 0L;
-	    }
-	}
+    public class Count implements
+            CombinerAggregator<Long> {
+        @Override
+        public Long init(TridentTuple tuple) {
+            return 1L;
+        }
+        @Override
+        public Long combine(Long val1, Long val2) {
+            return val1 + val2;
+        }
+        @Override
+        public Long zero() {
+            return 0L;
+        }
+    }
 
 我们应用分组和计算在我们的示例中拓扑计算附近出现的一种疾病在特定的时间特定的城市。实现这个目标的代码如下:
 
-	.groupBy(new Fields("cityDiseaseHour"))
-	.persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields（"count")).newValuesStream()
+    .groupBy(new Fields("cityDiseaseHour"))
+    .persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields（"count")).newValuesStream()
 
 回想一下,Storm分区流在可用的主机。这如下图所示:
 
@@ -560,3 +560,97 @@ groupBy()方法的强制重新分区数据。共享相同的值的元组根据�
 
 重新分区后,聚合函数是在每个分区运行每一组元组。在我们的示例中,我们按城市,小时,和疾病
 代码(使用关键字)分组。然后,Count聚合器执行该分组,进而发出疾病数给下游消费者。
+
+#Trident state
+
+现在我们介绍了每个聚合,我们需要持久化信息进行进一步分析。在Trident,持久化首先开始于状态
+管理。Trident有一级的原始状态,像Storm一样API的API,它使一些假设被存储为状态或者是什么
+状态该保存。在最高的层次上,Trident暴露状态下的接口如下:
+
+    public interface State {
+        void beginCommit(Long transactionId);
+        void commit(Long transactionId);
+    }
+
+如前所述,Trident把元组分成批次。每一批有它自己的事务标识符。在前面的接口,Trdient通知状态对象当状态正在提交和提交完成时。
+
+像function一样,有在一个拓扑中引入基于状态的操作流对象的方法。更具体地说,有两种类型的流在Tridet:Stream和GroupedStream。一个GroupedStream是执行groupBy操作的结果。在拓扑中,我们通过产生的关键字分组在HournAssignment function。
+
+在流对象中,以下方法允许读和写拓扑状态信息:
+
+    public class Stream implements IAggregatableStream {
+        ...
+
+        public Stream stateQuery(TridentState state, Fields inputFields, QueryFunction function, Fields functionFields) {
+            ...
+        }
+
+        public TridentState partitionPersist(StateFactory stateFactory, Fields inputFields, StateUpdater updater, Fields functionFields) {
+            ...
+        }
+
+        public TridentState partitionPersist(StateSpec stateSpec, Fields inputFields, StateUpdater updater, Fields functionFields) {
+           ...
+        }
+
+        public TridentState partitionPersist(StateFactory stateFactory, Fields inputFields, StateUpdater updater) {
+            ...
+        }
+
+        public TridentState partitionPersist(StateSpec stateSpec, Fields inputFields, StateUpdater updater) {
+           ...
+        }
+
+        ...
+    }
+
+stateQuery()方法从状态创建一个输入流,各种风格的partitionPersist()方法允许一个拓扑更新状态信息从一个流的元组。partitionPersist()方法在每个分区上运行。
+
+除了流对象方法,GroupedStream对象允许拓扑聚合数据从一组元组,同时持久化收集到的信息。下面是GroupedStream类状态相关的的方法:
+
+    public class GroupedStream implements IAggregatableStream, GlobalAggregationScheme<GroupedStream> {
+        ...
+    
+        public TridentState persistentAggregate(StateFactory stateFactory, CombinerAggregator agg,    Fields functionFields) {
+            ...
+        }
+        public TridentState persistentAggregate(StateSpec spec,    CombinerAggregator agg, Fields functionFields) {
+        ...
+        }
+        public TridentState persistentAggregate(StateFactory stateFactory, Fields inputFields, CombinerAggregator agg, Fields functionFields) {
+            ...
+        }
+        public TridentState persistentAggregate(StateSpec spec,    Fields inputFields, CombinerAggregator agg, Fields functionFields) {
+           ...
+        }
+        public Stream stateQuery(TridentState state, Fields inputFields, QueryFunction function, Fields functionFields) {
+            ...
+        }
+        public TridentState persistentAggregate(StateFactory stateFactory, ReducerAggregator agg, Fields functionFields) {
+            ...
+        }
+        public TridentState persistentAggregate(StateSpec spec, ReducerAggregator agg, Fields functionFields) {
+            ...
+        }
+        public Stream stateQuery(TridentState state, QueryFunction function, Fields functionFields) {
+            ...
+        }
+    }
+
+像基本流对象,stateQuery()方法从状态创建一个输入流。各种样式的persistAggregate()允许一个拓扑更新状态信息从一个流的元组。注意,GroupedStream方法使用聚合器,它首先在写这些信息之前适用于状态对象。
+
+现在让我们考虑这些功能应用到我们的例子。在我们的系统中,我们要持久化城市发生计数,疾病代码,和小时。这将使一个报告类似于下表:
+
+<table>
+    <tbody>
+       <tr><th><em>Disease</em></th><th><em>City</em></th><th><em>Date</em></th><th><em>Time</em></th><th><em>Occurrence Count</em></th></tr>
+       <tr><td>Bacterial meningitis</td><td>San Francisco</td><td>3/12/2013</td><td>3:00 PM</td><td>12</td></tr>
+       <tr><td>Bacterial meningitis</td><td>San Francisco</td><td>3/12/2013</td><td>4:00 PM</td><td>50</td></tr>
+       <tr><td>Bacterial meningitis</td><td>San Francisco</td><td>3/12/2013</td><td>5:00 PM</td><td>100</td></tr>
+       <tr><td>Smallpox</td><td>New York</td><td>3/12/2013</td><td>5:00 PM</td><td>6</td></tr>
+    </tbody>
+</table>
+
+为了达到这个目标,我们要持久化我们在聚合生成的数量。我们可以使用GroupedStream groupBy函数返回的接口(前面所述),调用persistAggregate方法。具体来说,以下是我们调用的示例拓扑:
+    
+    persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields("count")).newValuesStream()
