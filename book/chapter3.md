@@ -657,13 +657,13 @@ stateQuery()方法从状态创建一个输入流,各种风格的partitionPersist
 
 为了理解持久化,我们将首先专注于该方法的第一个参数。Trident使用工厂模式生成状态实例。OutbreakTrendFactory是我们拓扑提供的storm工厂。OutbreakTrendFactory的代码如下:
 
-	public class OutbreakTrendFactory implements StateFactory {
-	    @Override
-	    public State makeState(Map conf, IMetricsContext
-	            metrics, int partitionIndex, int numPartitions) {
-	        return new OutbreakTrendState(new OutbreakTrendBackingMap());
-	    }
-	}
+    public class OutbreakTrendFactory implements StateFactory {
+        @Override
+        public State makeState(Map conf, IMetricsContext
+                metrics, int partitionIndex, int numPartitions) {
+            return new OutbreakTrendState(new OutbreakTrendBackingMap());
+        }
+    }
 
 工厂返回Storm使用持久状态对象信息。在Storm中,有三种类型的状态。每种类型的描述如下表:
 
@@ -758,3 +758,48 @@ stateQuery()方法从状态创建一个输入流,各种风格的partitionPersist
        <tr><td>Transactional spout</td><td> </td><td>X</td><td>X</td></tr>
     </tbody>
 </table>
+
+幸运的是,Storm提供了map的实现持久层免受state管理的复杂性。具体来说,Trident提供状态的实现,维护先前的持久化额外信息。这些对象被命名为:NonTransactionalMap TransactionalMap,OpaqueMap。
+
+回到我们的示例中,由于我们没有事务保证,我们选择使用NonTransactionalMap状态对象。OutbreakTrendState对象看起来像下面的代码片段:
+
+    public class OutbreakTrendState extends NonTransactionalMap<Long> {
+        protected OutbreakTrendState(OutbreakTrendBackingMap outbreakBackingMap) {
+            super(outbreakBackingMap);
+        }
+    }
+
+前面的代码所示,利用MapState对象,我们只是传递一个map。在我们的例子中,是OutbreakTrendBackingMap。该对象的代码如下:
+
+    public class OutbreakTrendBackingMap implements
+            IBackingMap<Long> {
+        private static final Logger LOG =
+        LoggerFactory.getLogger(OutbreakTrendBackingMap.class);
+        Map<String, Long> storage = new ConcurrentHashMap<String, Long>();
+        @Override
+        public List<Long> multiGet(List<List<Object>> keys)
+        {
+            List<Long> values = new ArrayList<Long>();
+            for (List<Object> key : keys) {
+                Long value = storage.get(key.get(0));
+                if (value==null){
+                    values.add(new Long(0));
+                } else {
+                    values.add(value);
+                }
+            }
+            return values;
+        }
+        @Override
+        public void multiPut(List<List<Object>> keys, List<Long> vals) {
+            for (int i=0; i < keys.size(); i++) {
+                LOG.info("Persisting [" + keys.get(i).get(0) + "] ==> ["
+                        + vals.get(i) + "]");
+                storage.put((String) keys.get(i).get(0), vals.get(i));
+            }
+        }
+    }
+
+在我们的示例中拓扑中,我们实际上不持久化值。我们只是把它们放在ConcurrentHashMap。很明显,这不会跨多个主机工作。然而,BackingMap是一个聪明的抽象。只是改变支持map实例,我们进入MapState的构造函数对象改变持久层。在后面的章节我们将看到实际操作。
+
+#执行拓扑
