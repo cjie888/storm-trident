@@ -654,3 +654,107 @@ stateQuery()方法从状态创建一个输入流,各种风格的partitionPersist
 为了达到这个目标,我们要持久化我们在聚合生成的数量。我们可以使用GroupedStream groupBy函数返回的接口(前面所述),调用persistAggregate方法。具体来说,以下是我们调用的示例拓扑:
     
     persistentAggregate(new OutbreakTrendFactory(), new Count(), new Fields("count")).newValuesStream()
+
+为了理解持久化,我们将首先专注于该方法的第一个参数。Trident使用工厂模式生成状态实例。OutbreakTrendFactory是我们拓扑提供的storm工厂。OutbreakTrendFactory的代码如下:
+
+	public class OutbreakTrendFactory implements StateFactory {
+	    @Override
+	    public State makeState(Map conf, IMetricsContext
+	            metrics, int partitionIndex, int numPartitions) {
+	        return new OutbreakTrendState(new OutbreakTrendBackingMap());
+	    }
+	}
+
+工厂返回Storm使用持久状态对象信息。在Storm中,有三种类型的状态。每种类型的描述如下表:
+
+<table>
+    <tbody>
+       <tr><th><em>State type</em></th><th><em>Description</em></th></tr>
+       <tr><td>Non-Transactional</td><td>For persistence mechanisms that do not have rollback capabilities and where updates are permanent and commits are ignored.</td></tr>
+       <tr><td>Repeat Transactional</td><td>For persistence that is idempotent, provided the batch contains the same tuples.</td></tr>
+       <tr><td>Opaque Transactionall</td><td>Updates are based on the previous value, which makes the persistence resilient to changes in batch composition.</td></tr>
+    </tbody>
+</table>
+
+为了支持计数和状态更新在一个分布式环境中批次可以重播,Trident序列状态更新和使用不同的状态更新模式来容忍回放和错误。这些都在以下小节中描述。
+
+##Repeat Transactional state
+
+对于重复事务状态,最后提交的批次标识符作为数据存储。更新状态当且仅当批标识符
+对于当前的标识符是下一个。如果它等于或低于持久化标识符,更新被忽略,因为它已经被更新了。
+
+为了说明这种方法,考虑以下批次序列的状态更新是一个事件发生的总数量,关键字是在我们的例子中:
+
+<table>
+    <tbody>
+       <tr><th><em>Batch #</em></th><th><em>State Update</em></th></tr>
+       <tr><td>1</td><td>{SF:320:378911 = 4}</td></tr>
+       <tr><td>2</td><td>{SF:320:378911 = 10}</td></tr>
+       <tr><td>3</td><td>{SF:320:378911 = 8}</td></tr>
+    </tbody>
+</table>
+
+然后批量完成处理按照以下顺序:
+
+    1 à 2 à 3 à 3 (replayed)
+
+
+这将导致以下状态修改,在这里，中间列是持久化的批次标识符，表明最近批次纳入状态:
+
+<table>
+    <tbody>
+       <tr><th><em>Batch #</em></th><th colspan=2><em>State Update</em></th></tr>
+       <tr><td>1</td><td>{ Batch = 1 }</td><td>{SF:320:378911 = 4}</td></tr>
+       <tr><td>2</td><td>{ Batch = 2 }</td><td>{SF:320:378911 = 14}</td></tr>
+       <tr><td>3</td><td>{ Batch = 3 }</td><td>{SF:320:378911 = 22}</td></tr>
+       <tr><td>3 (Replayed)</td><td>{ Batch = 3 }</td><td>{SF:320:378911 = 22}</td></tr>
+    </tbody>
+</table>
+
+注意,当批#3完成重发,它没有影响状态因为Trident已经注册更新的状态。重复事务状态的正常功能,批量内容回之间不能改变。
+
+##Opaque state
+
+使用重复事务状态的方法依赖于批处理组成保持不变,如果一个系统遇到一个错误这种假设是不可能的,。如果spout从源排放可能部分失败,一些元组发出的首批可能不会再发射。不透明状态允许批组成的改变存储当前和以前的状态。
+
+假设我们有相同的批次与前面的示例一样,这一点当批3是重播,但总数量将有所不同,因为它包含一组不同的元组,如下表所示:
+
+<table>
+    <tbody>
+       <tr><th><em>Batch #</em></th><th><em>State Update</em></th></tr>
+       <tr><td>1</td><td>{SF:320:378911 = 4}</td></tr>
+       <tr><td>2</td><td>{SF:320:378911 = 10}</td></tr>
+       <tr><td>3</td><td>{SF:320:378911 = 8}</td></tr>
+       <tr><td>3(Replayed)</td><td>{SF:320:378911 = 6}</td></tr>
+    </tbody>
+</table>
+
+不透明的状态,状态更新如下:
+
+<table>
+    <tbody>
+       <tr><th><em>Completed batch #</em></th><th><em>Batch committed</em></th><th><em>Previous state</em></th><th><em>Current state</em></th></tr>
+       <tr><td>1</td><td>1</td><td>{}</td><td>{ SF:320:378911 = 4 }</td></tr>
+       <tr><td>2</td><td>2</td><td>{ SF:320:378911 = 4 }</td><td>{ SF:320:378911 = 14 }</td></tr>
+       <tr><td>3 (Applies)</td><td>3</td><td>{ SF:320:378911 = 14 }</td><td>{ SF:320:378911 = 22 }</td></tr>
+       <tr><td>3 (Replayed))</td><td>3</td><td>{ SF:320:378911 = 14 }</td><td>{ SF:320:378911 = 20 }</td></tr>
+    </tbody>
+</table>
+
+注意到,不透明状态存储之前的状态信息。因此,当批#3重播时,重新使用新的聚合状态计数。
+
+你可能想知道为什么我们会重新申请批次是否已提交。我们关心的场景是一个更新成功的状态,但下游处理失败了。也许在我们的示例拓扑,警报未能发送。在这种情况下,Tridnet将重试批次。现在,在最坏的情况,当Spout被要求重发批,一个或多个来源的数据可能不可用。
+
+在事务spout的情况下,它需要等到所有的来源再次可用。一个不透明的事务spout可以发出可用的批处理的部分,可以继续处理。因为Trident依靠应用批次状态顺序,它没有一个批处理必须被推迟,当延误处理
+在系统中。
+
+鉴于这种方法,状态的选择应该基于spout来保证幂等行为,而不是过量的数或腐败的状态。下表显示了可能的组合保证幂等行为:
+
+<table>
+    <tbody>
+       <tr><th><em>Type of Spout</em></th><th><em>Non-Transactional state</em></th><th><em>Opaque State</em></th><th><em>Repeat Transactional state</em></th></tr>
+       <tr><td>Non-Transactional spout</td><td> </td><td></td><td></td></tr>
+       <tr><td>Opaque spout</td><td> </td><td>X</td><td></td></tr>
+       <tr><td>Transactional spout</td><td> </td><td>X</td><td>X</td></tr>
+    </tbody>
+</table>
