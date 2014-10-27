@@ -802,7 +802,7 @@ stateQuery()方法从状态创建一个输入流,各种风格的partitionPersist
 
 在我们的示例中拓扑中,我们实际上不持久化值。我们只是把它们放在ConcurrentHashMap。很明显,这不会跨多个主机工作。然而,BackingMap是一个聪明的抽象。只是改变支持map实例,我们进入MapState的构造函数对象改变持久层。在后面的章节我们将看到实际操作。
 
-#执行拓扑
+##执行拓扑
 
 OutbreakDetectionTopology类主要有以下方法:
 
@@ -818,19 +818,19 @@ OutbreakDetectionTopology类主要有以下方法:
 
 执行这个方法将提交拓扑到本地集群。spout将立即开始发射诊断事件,统计聚合器将收集。OutbreakDetector类的阈值设置，数量将很快超过阈值,此时程序终止使用以下的命令:
 
-    INFO [Thread-18] DefaultCoordinator.success(31) |Successful Transaction [8]
-    INFO [Thread-18] DefaultCoordinator.initializeTransaction(25) | Initializing Transaction [9]
-    ...
-    INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:320:378951] ==> [10306]
-    INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [PHL:320:378951] ==> [893]
-    INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [NYC:322:378951] ==> [1639]    INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:322:378951] ==> [10254]
-    INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:321:378951] ==> [10386]
-    ...
-    00:04 ERROR: ALERT RECEIVED [Outbreak detected for     [SF:320:378951]!]
-    00:04 ERROR: Dispatch the National Guard!
+	INFO [Thread-18] DefaultCoordinator.success(31) |Successful Transaction [8]
+	INFO [Thread-18] DefaultCoordinator.initializeTransaction(25) | Initializing Transaction [9]
+	...
+	INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:320:378951] ==> [10306]
+	INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [PHL:320:378951] ==> [893]
+	INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [NYC:322:378951] ==> [1639]	INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:322:378951] ==> [10254]
+	INFO [Thread-24] OutbreakTrendBackingMap.multiPut(34)| Persisting [SF:321:378951] ==> [10386]
+	...
+	00:04 ERROR: ALERT RECEIVED [Outbreak detected for 	[SF:320:378951]!]
+	00:04 ERROR: Dispatch the National Guard!
 
 注意,通知协调器在成功完成批次,或者多批次后,将超过阈值,系统指导我们的错误消息,发送刀片国民警卫队。
 
-#总结
+##总结
 
 在这一章,我们创建了一个拓扑来处理诊断信息识别异常,这将引起爆发。同样的数据流可以应用到任何类型的数据,包括天气、地震信息,或交通数据。在我们实验中，通过Trident基本原语构建一个系统,能够统计事件当批次重播时。在这本书的后面章节中,我们将利用这些相同的构造和模式来执行类似的功能。
