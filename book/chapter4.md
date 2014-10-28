@@ -42,20 +42,20 @@ logback框架有一个扩展机制,允许您添加额外的输出源配置。一
 
 ###Apache Kafka
 
-Apache Kafka(http://kafka.apache.org)是一个开源的分布式发布-订阅消息系统。Kafka是专门为高吞吐量设计和优化的持续的实时流系统。像Storm一样,Kafka旨在水平扩展对大的商页软件支持每秒数十万的消息。
+Apache Kafka( http://kafka.apache.org )是一个开源的分布式发布-订阅消息系统。Kafka是专门为高吞吐量设计和优化的持续的实时流系统。像Storm一样,Kafka旨在水平扩展对大的商页软件支持每秒数十万的消息。
 
 ###Kafka spout
 
-Kafka spou从Kafka队列中读取数据并发给Storm或者Trident拓扑。Kafka spout最初是由Nathan Marz编写,,现在是一个storm-contrib项目的一部分在GitHub(https://github.com/nathanmarz/storm-contrib)。Kafka spout的预构建二进制文件可从clojars.org Maven存储库(https://clojars.org/storm/storm-kafka)下载。我们将使用Kafka spout从Kafka队列读取消息,流进我们的拓扑。
+Kafka spou从Kafka队列中读取数据并发给Storm或者Trident拓扑。Kafka spout最初是由Nathan Marz编写,现在是一个storm-contrib项目的一部分在GitHub( https://github.com/nathanmarz/storm-contrib  。Kafka spout的预构建二进制文件可从clojars.org Maven存储库( https://clojars.org/storm/storm-kafka )下载。我们将使用Kafka spout从Kafka队列读取消息,流进我们的拓扑。
 
 我们的拓扑结构将由一组内置和定制的Trident组件(功能、过滤器、状态等等),检测模式源数据流。当检测到一个模式,拓扑将发出一个元组给一个函数,将XMPP消息发给XMPP服务器并通知
 用户通过一个即时消息(IM)。
 
 ###XMPP server
 
-可扩展消息传递和表示协议(XMPP)(http://xmpp.org)是一个基于xml的标准,用于即时消息,消息表示,联系人列表维护的协议。许多IM客户端如Adium(OSX)(http://adium.im)和Pidgin(OSX,Linus,和Windows)(http://www.pidgin.im)支持XMPP协议,如果您曾经使用过Google Talk即时消息,你已经使用XMPP。
+可扩展消息传递和表示协议(XMPP)( http://xmpp.org )是一个基于xml的标准,用于即时消息,消息表示,联系人列表维护的协议。许多IM客户端如Adium(OSX)( http://adium.im )和Pidgin(OSX,Linus,和Windows)(http://www.pidgin.im)支持XMPP协议,如果您曾经使用过Google Talk即时消息,你已经使用XMPP。
 
 
-我们将使用开放源码的OpenFire XMPP服务器，因其易于设置(http://www.igniterealtime.org/projects/openfire/)和兼容OSX,Linux和Windows。
+我们将使用开放源码的OpenFire XMPP服务器，因其易于设置( http://www.igniterealtime.org/projects/openfire/ )和兼容OSX,Linux和Windows。
 
 ## 安装所需软件
