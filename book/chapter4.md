@@ -46,7 +46,7 @@ Apache Kafka( http://kafka.apache.org )是一个开源的分布式发布-订阅�
 
 ###Kafka spout
 
-Kafka spou从Kafka队列中读取数据并发给Storm或者Trident拓扑。Kafka spout最初是由Nathan Marz编写,现在是一个storm-contrib项目的一部分在GitHub( https://github.com/nathanmarz/storm-contrib  。Kafka spout的预构建二进制文件可从clojars.org Maven存储库( https://clojars.org/storm/storm-kafka )下载。我们将使用Kafka spout从Kafka队列读取消息,流进我们的拓扑。
+Kafka spout从Kafka队列中读取数据并发给Storm或者Trident拓扑。Kafka spout最初是由Nathan Marz编写,现在是一个storm-contrib项目的一部分在GitHub( https://github.com/nathanmarz/storm-contrib ）。Kafka spout的预构建二进制文件可从clojars.org Maven存储库( https://clojars.org/storm/storm-kafka )下载。我们将使用Kafka spout从Kafka队列读取消息,流进我们的拓扑。
 
 我们的拓扑结构将由一组内置和定制的Trident组件(功能、过滤器、状态等等),检测模式源数据流。当检测到一个模式,拓扑将发出一个元组给一个函数,将XMPP消息发给XMPP服务器并通知
 用户通过一个即时消息(IM)。
@@ -59,3 +59,39 @@ Kafka spou从Kafka队列中读取数据并发给Storm或者Trident拓扑。Kafka
 我们将使用开放源码的OpenFire XMPP服务器，因其易于设置( http://www.igniterealtime.org/projects/openfire/ )和兼容OSX,Linux和Windows。
 
 ## 安装所需软件
+
+我们将开始安装必要的软件:Apache Kafka和OpenFire。虽然Kafka是分布式消息系统,它将工作的很好作为一个节点安装,甚至本地开发环境的一部分。在生产环境中,您需要设置一个一台或多台机器集群根据你的扩展需求。OpenFire服务器不是一个集群系统,可以安装在一个本地或单节点。
+
+###安装Kafka
+
+Kafka依赖于ZooKeeper用于存储特定的状态信息,就像Storm。Storm对ZooKeeper相对轻量,在许多情况下Storm和Kafka可以共享相同的ZooKeeper集群。因为我们已经覆盖了ZooKeeper安装在第二章配置storm集群,在这里我们就介绍本地的ZooKeeper管理服务器,附带Kafka并适合一个开发环境。
+
+首先下载Apache Kafka 的0.7。x版本从以下网站: http://kafka.apache.org/downloads.html
+
+
+接下来,解压缩源代码包,改变当前的目录为以下目录:
+
+	tar -zxf kafka-0.7.2-incubating-src.tgz
+	cd kafka-0.7.2-incubating-src
+
+Kafka是用Scala JVM语言编写的( http://www.scala-lang.org )使用sbt(Scala构建工具)( http://www.scala-sbt.org) 来编译和打包。幸运的是,Kafka下载包包括sbt，可以用下面的命令构建:
+
+	./sbt update package
+
+启动Kafka之前,除非你已经有了一个ZooKeeper服务运行,否则你将需要启动与Kafka捆绑在一起的ZooKeeper服务，使用以下命令:
+
+   ./bin/zookeeper-server-start.sh ./config/zookeeper.properties
+
+最后,在另一个终端窗口,使用以下命令启动Kafka服务：
+
+    ./bin/kafka-server-start.sh ./config/server.properties
+
+卡夫卡服务现在可以使用了。
+
+###安装OpenFire
+
+OpenFire可用作为OSX和Windows以及包不同的Linux发行版的安装程序,它可以从以下网站下载: http://www.igniterealtime.org/downloads/index.jsp
+
+安装OpenFire,下载您的操作系统的安装程序需遵循对应的安装说明,可以从以下网站找到:
+http://www.igniterealtime.org/builds/openfire/docs/latest/documentation/i
+ndex.html
