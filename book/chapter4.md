@@ -71,12 +71,12 @@ Kafka依赖于ZooKeeper用于存储特定的状态信息,就像Storm。Storm对Z
 
 接下来,解压缩源代码包,改变当前的目录为以下目录:
 
-	tar -zxf kafka-0.7.2-incubating-src.tgz
-	cd kafka-0.7.2-incubating-src
+    tar -zxf kafka-0.7.2-incubating-src.tgz
+    cd kafka-0.7.2-incubating-src
 
 Kafka是用Scala JVM语言编写的( http://www.scala-lang.org )使用sbt(Scala构建工具)( http://www.scala-sbt.org) 来编译和打包。幸运的是,Kafka下载包包括sbt，可以用下面的命令构建:
 
-	./sbt update package
+    ./sbt update package
 
 启动Kafka之前,除非你已经有了一个ZooKeeper服务运行,否则你将需要启动与Kafka捆绑在一起的ZooKeeper服务，使用以下命令:
 
@@ -86,7 +86,7 @@ Kafka是用Scala JVM语言编写的( http://www.scala-lang.org )使用sbt(Scala�
 
     ./bin/kafka-server-start.sh ./config/server.properties
 
-卡夫卡服务现在可以使用了。
+Kafka服务现在可以使用了。
 
 ###安装OpenFire
 
@@ -95,3 +95,127 @@ OpenFire可用作为OSX和Windows以及包不同的Linux发行版的安装程序
 安装OpenFire,下载您的操作系统的安装程序需遵循对应的安装说明,可以从以下网站找到:
 http://www.igniterealtime.org/builds/openfire/docs/latest/documentation/i
 ndex.html
+
+##介绍实例程序
+
+应用程序组件是一个简单的Java类,它使用简单的Java日志Facade(SLF4J)( http://www.slf4j.org )记录日志消息。我们将模拟应用程序首先生成速度相对较慢警告消息,然后切换到一个装填,它生成警告消息以更快的速度,并最终返回到缓慢的状态如下:
+
+- 生成一条警告消息每5秒持续30秒(缓慢的状态)
+- 每秒钟生成一个警告消息持续15秒(快速状态)
+- 生成一条警告消息每5秒持续30秒(缓慢的状态)
+
+应用程序的目标是生成一个简单的模式,我们的Storm拓扑可以识别和响应通过发送通知当特定模式的事件和状态变化发生,代码片段如以下代码所示:
+
+    public class RogueApplication {
+        //private static final Logger LOG =
+        //            LoggerFactory.getLogger(RogueApplication.class);
+        private static final Logger LOG =
+            LoggerFactory.getLogger("com.cjie.storm.trident.trend.RogueApplication");
+        public static void main(String[] args) throws Exception {
+            int slowCount = 6;
+            int fastCount = 15;
+            while (true)        {
+                // slow state
+                for(int i = 0; i < slowCount; i++){
+                    LOG.warn("This is a warning (slow state).");
+                    Thread.sleep(5000);
+                }
+                // enter rapid state
+                for(int i = 0; i < fastCount; i++){
+                    LOG.warn("This is a warning (rapid state).");
+                    Thread.sleep(1000);
+                }
+                // return to slow state
+                for(int i = 0; i < slowCount; i++){
+                    LOG.warn("This is a warning (slow state).");
+                    Thread.sleep(5000);
+                }
+            }
+    
+        }
+    }
+
+###发送日志消息给Kafka
+
+logback框架提供了一个简单的扩展机制,它允许你插入额外的appender。在我们的例子中,我们要实现一个可以写日志消息数据到Kafka的appender。
+
+Logback包括ch.qos.logback.core。AppenderBase抽象类,使它容易实现Appender接口。
+AppenderBase类定义了一个抽象方法如下:
+
+    abstract protected void append(E eventObject);
+
+eventObject参数代表了一个日志记录事件和包括的属性如事件的日期、日志级别(DEBUG, INFO, WARN等等),以及日志消息本身。我们将覆盖append()方法编写eventObject数据到Kafka。
+
+除了append()方法,AppenderBase类定义了两个额外的生命周期方法,我们将需要覆盖：
+
+    public void start();
+    public void stop();
+
+start()方法在logback框架初始化期间被调用,stop()方法在deinitialization被调用。我们将会覆盖这些方法来建立和拆除与Kafka的连接服务。
+
+KafkaAppender类的源代码如下:
+
+    public class KafkaAppender extends
+            AppenderBase<ILoggingEvent> {
+        private String topic;
+        private String zookeeperHost;
+        private Producer<String, String> producer;
+        private Formatter formatter;
+    
+        // java bean definitions used to inject
+        // configuration values from logback.xml
+        public String getTopic() {
+            return topic;
+        }
+    
+        public void setTopic(String topic) {
+            this.topic = topic;
+        }
+        public String getZookeeperHost() {
+            return zookeeperHost;
+        }
+        public void setZookeeperHost(String zookeeperHost)
+        {
+            this.zookeeperHost = zookeeperHost;
+        }
+        public Formatter getFormatter() {
+            return formatter;
+        }
+        public void setFormatter(Formatter formatter) {
+            this.formatter = formatter;
+        }
+        // overrides
+        @Override
+        public void start() {
+            if (this.formatter == null) {
+                this.formatter = new MessageFormatter();
+            }
+            super.start();
+            Properties props = new Properties();
+            props.put("zk.connect", this.zookeeperHost);
+            props.put("serializer.class", "kafka.serializer.StringEncoder");
+            ProducerConfig config = new ProducerConfig(props);
+            this.producer = new Producer<String, String>(config);
+        }
+        @Override
+        public void stop() {
+            super.stop();
+            this.producer.close();
+        }
+        @Override
+        protected void append(ILoggingEvent event) {
+           String payload = this.formatter.format(event);
+           ProducerData<String, String> data = new ProducerData<String, String>(this.topic, payload);
+           this.producer.send(data);
+        }
+        public static void main(String[] args) {
+            Properties props = new Properties();
+            props.put("zk.connect", "testserver:2181");
+            props.put("serializer.class", "kafka.serializer.StringEncoder");
+            ProducerConfig config = new ProducerConfig(props);
+            Producer producer = new Producer<String, String>(config);
+            String payload = String.format("abc%s","test");
+            ProducerData<String, String> data = new ProducerData<String, String>("mytopic", payload);
+            producer.send(data);
+        }
+    }
