@@ -219,3 +219,118 @@ KafkaAppender类的源代码如下:
             producer.send(data);
         }
     }
+
+正如您将看到的,JavaBean-style访问器允许我们通过依赖注入配置关联值在运行时当logback框架初始化时。zookeeperHosts属性的setter和getter方法用于初始化KafkaProducer客户机配置来发现kafka在zookeeper注册的主机。另一种方法是提供一个静态Kafka主机列表,但为了简单起见更容易使用一个自动发现机制。主题属性用于告诉KafkaConsumer客户机应该读Kafka的话题。
+
+Formatter属性有点特别。这是我们已经定义的一个接口,它提供了一个扩展点来处理结构(即解析)
+日志消息,如下面的代码片段所示:
+
+    public interface Formatter {
+        String format(ILoggingEvent event);
+    }
+
+Formatter程序实现的工作是把一个ILoggingEvent对象将其转化为机器可读的字符串,可以由消费者处理。下面的代码片段列出的简单实现简单地返回日志消息,丢弃任何额外的元数据:
+
+    public class MessageFormatter implements Formatter {
+        public String format(ILoggingEvent event) {
+            return event.getFormattedMessage();
+        }
+    }
+
+以下logback配置文件说明了怎么使用appender。本例中没有定义一个自定义Formatter程序实现,所以KafkaAppender类将默认使用messageformat类和只写日志消息数据到Kafka和丢弃任何额外的信息包含在记录事件,如下面代码片段所示:
+
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <configuration>
+        <appender name="KAFKA" class="com.github.ptgoetz.logback.kafka.KafkaAppender">
+            <topic>mytopic</topic>
+            <zookeeperHost>localhost:2181</zookeeperHost>
+        </appender>
+        <root level="debug">
+            <appender-ref ref="KAFKA" />
+        </root>
+    </configuration>
+
+我们构建的Storm应用是时间敏感的:如果我们跟踪每个事件发生时速率,我们需要精确知道一个事件发生。一个简单的方法是使用System.currentTimeMillis()方法简单地分配每一个事件,当数据进入我们的拓扑时。然而,Trident的批处理机制并不能保证元组将交付给一个拓扑以他们收到的消息同样的速度。
+
+为了解释这种情况,我们需要捕获事件的时间当它发生时,包括它的数据,当我们写到Kafka队列。
+幸运的是,ILoggingEvent类包含一个时间戳,以毫秒为单位从纪元以来记录事件发生。
+
+包括元数据包含在ILoggingEvent,我们将创建一个自定义Formatter实现日志事件数据编码的JSON格式如下:
+
+    public class JsonFormatter implements Formatter {
+        private static final String QUOTE = "\"";
+        private static final String COLON = ":";
+        private static final String COMMA = ",";
+        private boolean expectJson = false;
+    
+        public String format(ILoggingEvent event) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("{");
+            fieldName("level", sb);
+            quote(event.getLevel().levelStr, sb);
+            sb.append(COMMA);
+            fieldName("logger", sb);
+            quote(event.getLoggerName(), sb);
+            sb.append(COMMA);
+            fieldName("timestamp", sb);
+            sb.append(event.getTimeStamp());
+            sb.append(COMMA);
+            fieldName("message", sb);
+            if (this.expectJson) {
+                sb.append(event.getFormattedMessage());
+            } else {
+                quote(event.getFormattedMessage(), sb);
+            }
+            sb.append("}");
+            return sb.toString();
+        }
+        private static void fieldName(String name, StringBuilder sb) {
+            quote(name, sb);
+            sb.append(COLON);
+        }
+        private static void quote(String value, StringBuilder sb) {
+            sb.append(QUOTE);
+            sb.append(value);
+            sb.append(QUOTE);
+        }
+        public boolean isExpectJson() {
+            return expectJson;
+        }
+        public void setExpectJson(boolean expectJson) {
+            this.expectJson = expectJson;
+        }
+    }
+
+JsonMessageFormatter类代码的大部分使用一个java.lang.StringBuilder类从ILoggingEvent创建JSON对象。虽然我们可以使用JSON库来做这项工作,我们生成的JSON数据简单并添加一个额外的依赖只是生成JSON，用json库会杀鸡用牛刀了。
+
+JsonMessageFormatter暴漏的一个JavaBean属性是expectJson Boolean用于指定日志消息传递到格式化程序实现是否应被视为JSON。如果设置为False,日志消息将被视为一个字符串用双引号,否则,消息将被视为一个JSON对象数组({…})或([…])。
+
+下面是一个示例logback配置文件,说明了使用KafkaAppender和JsonFormatter类:
+
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <configuration>
+        <appender name="KAFKA" class="com.cjie.storm.trident.trend.logappender.KafkaAppender">
+            <topic>log-analysis</topic>
+            <zookeeperHost>testserver:2181</zookeeperHost>
+            <formatter class="com.cjie.storm.trident.trend.logappender.JsonFormatter">
+                <!--
+                Whether we expect the log message to be JSON  encoded or not.
+                If set to "false", the log message will be
+                treated as a string, and wrapped in quotes. Otherwise
+                it will be treated as a parseable JSON object.
+                -->
+                <expectJson>false</expectJson>
+            </formatter>
+        </appender>
+        <root level="debug">
+            <appender-ref ref="KAFKA" />
+        </root>
+        <logger name="com.cjie.storm.trident.trend.RogueApplication" additivity="false">
+            <level value="DEBUG"/>
+            <appender-ref ref="KAFKA" />
+        </logger>
+    </configuration>
+
+
+因为我们正在构建的拓扑分析是更关心的事件时间而不是消息内容,我们生成的日志消息是字符串,所以
+我们设置了expectJson属性为假。
