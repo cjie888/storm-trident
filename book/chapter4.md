@@ -334,3 +334,36 @@ JsonMessageFormatter暴漏的一个JavaBean属性是expectJson Boolean用于指�
 
 因为我们正在构建的拓扑分析是更关心的事件时间而不是消息内容,我们生成的日志消息是字符串,所以
 我们设置了expectJson属性为假。
+
+##日志分析拓扑
+
+意味着我们的日志数据写入Kafka,我们准备将注意力转向Trident拓扑的实现进行分析计算。拓扑将执行以下操作:
+
+1. 接收和解析原始JSON日志事件数据。
+1. 提取和发射必要的字段。
+1. 更新一个指数加权移动平均线的功能。
+1. 确定移动平均线交叉指定的阈值。
+1. 过滤事件,并不代表一个状态改变(例如移动速率高于/低于阈值)。
+2. 发送即时消息(XMPP)通知。
+
+下图描述了拓扑的Trident流操作在顶部和底部流处理组件:
+
+![topology](./pic/4/trend_topology.jpg)
+
+###Kafka spout
+
+创建日志分析拓扑第一步是配置Kafka Spout来处理来自Kafka到我们的拓扑流数据如下:
+
+    TridentTopology topology = new TridentTopology();
+    StaticHosts kafkaHosts = KafkaConfig.StaticHosts.fromHostString(Arrays.asList(new String[] { "localhost" }), 1);
+    TridentKafkaConfig spoutConf = new TridentKafkaConfig(kafkaHosts, "log-analysis");
+    spoutConf.scheme = new StringScheme();
+    spoutConf.forceStartOffsetTime(-1);
+    OpaqueTridentKafkaSpout spout = new OpaqueTridentKafkaSpout(spoutConf);
+    Stream spoutStream = topology.newStream("kafka-stream", spout);
+
+This code first creates a new TridentTopology instance, and then uses the
+Kafka Java API to create a list of Kafka hosts with which to connect (since
+we're running a single, unclustered Kafka service locally, we specify a single
+host: localhost). Next, we create theTridentKafkaConfig object,
+passing it the host list and a unique identifier.
