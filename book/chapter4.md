@@ -362,8 +362,60 @@ JsonMessageFormatter暴漏的一个JavaBean属性是expectJson Boolean用于指�
     OpaqueTridentKafkaSpout spout = new OpaqueTridentKafkaSpout(spoutConf);
     Stream spoutStream = topology.newStream("kafka-stream", spout);
 
-This code first creates a new TridentTopology instance, and then uses the
-Kafka Java API to create a list of Kafka hosts with which to connect (since
-we're running a single, unclustered Kafka service locally, we specify a single
-host: localhost). Next, we create theTridentKafkaConfig object,
-passing it the host list and a unique identifier.
+这段代码首先创建一个新的TridentTopology实例,然后使用Kafka Java API来创建一个Kafka主机列表的主机连接(因为我们运行一个单机的、未聚集的Kafka在本地服务,我们指定一个主机:localhost)。接下来,我们创建TridentKafkaConfig对象,通过主机列表和一个惟一的标识符。
+
+我们的应用程序的数据写入Kafka是一个简单的Java字符串,所以我们使用Storm-Kafka内置的StringScheme类。StringScheme类将从Kafka作为字符串读取数据和输出字段命名str的元组。默认情况下,在部署Kafka spout将尝试从Kafka队列读取,最后通过查询ZooKeeper最后的偏移量状态信息。这种行为可以通过调用覆盖TridentKafkaConfig类的forceOffsetTime(long型时间)方法。时间参数可以是以下三个值之一:
+
+- 2(最早偏移):spout将从从一开始就开始阅读队列的数据
+- 1(最新偏移):spout将从队列的末尾快进和阅读
+- 毫秒为单位:鉴于毫秒(具体日期，例如,java.util.Date.getTime()),Spout将尝试开始阅读从那个时间点
+
+设置spout配置后,我们创建一个不透明TransactionalKafka Spout的实例并建立一个相应的Trident流。
+
+###JSON投影函数
+
+来自Kafka Spout的数据流将包含一个字段(str)从日志事件包含JSON数据。我们将创建一个Trident的功能解析传入的数据和输出,或投影要求的元组字段使用下面的代码片段:
+
+    public class JsonProjectFunction extends BaseFunction {
+    
+        private Fields fields;
+        public JsonProjectFunction(Fields fields) {
+            this.fields = fields;
+        }
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            String json = tuple.getString(0);
+            Map<String, Object> map = (Map<String, Object>) JSONValue.parse(json);
+            Values values = new Values();
+            for (int i = 0; i < this.fields.size(); i++) {
+                values.add(map.get(this.fields.get(i)));
+            }
+            collector.emit(values);
+        }
+    }
+
+JsonProjectFunction构造函数接受一个字段对象参数,从JSON确定什么值作为关键字发出查找。当函数接收一个元组,它将解析JSON元组的str领域,迭代Fieldsobject的值,并发出相应的值从输入JSON。
+
+下面的代码创建一个字段对象提取字段名称的列表从JSON。然后创建一个新的流对象的spout流,选择str元组字段的输入作为JsonProjectFunction构造函数参数,构造JsonProjectFunction对象,并指定字段选择从JSON也将输出功能:
+
+    Fields jsonFields = new Fields("level", "timestamp", "message", "logger");
+    Stream parsedStream = spoutStream.each(new Fields("str"), new JsonProjectFunction(jsonFields), jsonFields);
+
+考虑到从Kafka Spout接收JSON消息:
+
+    {
+        "message" : "foo",
+        "timestamp" : 1370918376296,
+        "level" : "INFO",
+        "logger" : "test"
+    }
+这意味着函数输出元组值如下:
+    [INFO, 1370918376296, test, foo]
+
+###计算移动平均数
+
+为了计算日志事件发生的速度,不需要存储大量的状态,我们将实现一个函数,完成统计指数加权移动平均线。
+
+移动平均计算常被用来消除短期波动和长期暴露时间序列数据的趋势。移动平均线一个最常见的例子是使用绘图在股票市场价格的波动,如下截图所示:
+
+![stock moving](./pic/4/stock_moving.png)
