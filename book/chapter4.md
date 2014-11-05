@@ -437,3 +437,114 @@ JsonProjectFunction构造函数接受一个字段对象参数,从JSON确定什�
 
 我们有一个事件(比如网络错误等),很少发生。偶尔,小峰值频率发生,但通常是正常的。所以,我们
 想要消除小高峰。如果有什么持续飙升我们才想要收到通知。
+
+如果事件平均一周发生一次(远低于我们的通知阈值),但有一天许多事件在一个小时内上涨(高于我们
+通知阈值),高alpha的平滑效应可以抵消飙升,这样永远不会触发通知。
+
+为了抵消这种效应,我们可以将滑动窗口的概念引入到我们的移动平均计算。因为我们已经跟踪最后一个事件和当前平均值,实现一个滑动窗口是简单的，见下面的伪代码:
+
+    if (currentTime - lastEventTime) > slidingWindowInterval
+        currentAverage = 0
+    end if
+
+指数加权移动平均的一个实现如下所示:
+
+    public class EWMA implements Serializable {
+        public static enum Time {
+            MILLISECONDS(1),
+            SECONDS(1000),
+            MINUTES(SECONDS.getTime() * 60),
+            HOURS(MINUTES.getTime() * 60),
+            DAYS(HOURS.getTime() * 24),
+            WEEKS(DAYS.getTime() * 7);
+            private long millis;
+            private Time(long millis) {
+                this.millis = millis;
+            }
+            public long getTime() {
+                return this.millis;
+            }
+        }
+    
+        // Unix load average-style alpha constants
+        public static final double ONE_MINUTE_ALPHA = 1 - Math.exp(-5d / 60d / 1d);
+        public static final double FIVE_MINUTE_ALPHA = 1 - Math.exp(-5d / 60d / 5d);
+        public static final double FIFTEEN_MINUTE_ALPHA =  1 - Math.exp(-5d / 60d / 15d);
+        private long window;
+        private long alphaWindow;
+        private long last;
+        private double average;
+        private double alpha = -1D;
+        private boolean sliding = false;
+        public EWMA() {
+        }
+    
+        public EWMA sliding(double count, Time time) {
+            return this.sliding((long) (time.getTime() * count));
+        }
+        public EWMA sliding(long window) {
+            this.sliding = true;
+            this.window = window;
+            return this;
+        }
+    
+        public EWMA withAlpha(double alpha) {
+            if (!(alpha > 0.0D && alpha <= 1.0D)) {
+                throw new IllegalArgumentException("Alpha must be between 0.0 and 1.0");
+            }
+            this.alpha = alpha;
+            return this;
+        }
+        public EWMA withAlphaWindow(long alphaWindow) {
+            this.alpha = -1;
+            this.alphaWindow = alphaWindow;
+            return this;
+        }
+    
+        public EWMA withAlphaWindow(double count, Time
+                time) {
+            return this.withAlphaWindow((long) (time.getTime() * count));
+        }
+        public void mark() {
+            mark(System.currentTimeMillis());
+        }
+    
+        public synchronized void mark(long time) {
+            if (this.sliding) {
+                if (time - this.last > this.window) {
+                    // reset the sliding window
+                    this.last = 0;
+                }
+            }
+            if (this.last == 0) {
+                this.average = 0;
+                this.last = time;
+            }
+            long diff = time - this.last;
+            double alpha = this.alpha != -1.0 ? this.alpha :
+                    Math.exp(-1.0 * ((double) diff / this.alphaWindow));
+            this.average = (1.0 - alpha) * diff + alpha * this.average;
+            this.last = time;
+        }
+        public double getAverage() {
+            return this.average;
+        }
+        public double getAverageIn(Time time) {
+            return this.average == 0.0 ? this.average :
+                    this.average / time.getTime();
+        }
+        public double getAverageRatePer(Time time) {
+            return this.average == 0.0 ? this.average :
+                    time.getTime() / this.average;
+        }
+    }
+
+EWMA实现定义了三个有用的alpha常量值:ONE_MINUTE_ALPHA，FIVE_MINUTE_ALPHA, FIFTEEN_MINUTE_ALPHA。这些对应于标准的alpha值用来计算平均负载在UNIX中。alpha值也可以手动指定,或作为一个alpha窗口的函数。
+
+实现使用fluent-style构建器API。例如,您可以创建一个EWMA实例实现一分钟的滑动窗口和一个alpha值相当于UNIX一分钟间隔,使用以下代码片段所示:
+
+    EWMA ewma = new EWMA().sliding(1.0, Time.MINUTES).withAlphaEWMA.ONE_MINUTE_ALPHA);
+
+mark()方法用于更新移动平均线。没有参数,mark()方法将使用当前时间来计算平均值。因为我们想使用原始的日志事件的时间戳,覆盖mark()方法允许我们定义一个特定的时间规范。
+
+The getAverage() method returns the average time between calls to mark() in milliseconds. We also added the convenient getAverageIn() method, which will return the average in the specified time unit of measure (seconds, minutes, hours, and so on). The getAverageRatePer() method returns the rate of calls to mark() in a specific time measurement.
