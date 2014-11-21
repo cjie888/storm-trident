@@ -547,4 +547,27 @@ EWMA实现定义了三个有用的alpha常量值:ONE_MINUTE_ALPHA，FIVE_MINUTE_
 
 mark()方法用于更新移动平均线。没有参数,mark()方法将使用当前时间来计算平均值。因为我们想使用原始的日志事件的时间戳,覆盖mark()方法允许我们定义一个特定的时间规范。
 
-The getAverage() method returns the average time between calls to mark() in milliseconds. We also added the convenient getAverageIn() method, which will return the average in the specified time unit of measure (seconds, minutes, hours, and so on). The getAverageRatePer() method returns the rate of calls to mark() in a specific time measurement.
+getAverage()方法返回调用mark()之间的平均时间,以毫秒为单位。我们还增加了方便的getAverageIn()方法,它将返回按指定度量单位的平均时间(秒、分钟、小时等等)。getAverageRatePer()方法返回调用mark()在一个特定的时间测量的速率。
+
+你可能会发现,使用指数加权移动平均线有点棘手。找到合适的组值α以及可选的滑动窗口变化很大取决于具体的用例,找到正确的值主要是尝试和错误的问题。
+
+###实现移动平均函数
+
+使用我们的EWMA类在Trident拓扑中,我们将创建一个名为MovingAverageFunction包装EWMA的一个实例的类，它是Trident BaseFunction抽象类的子类,如下面代码片段所示:
+
+    public class MovingAverageFunction extends
+            BaseFunction {
+        private static final Logger LOG = LoggerFactory.getLogger(BaseFunction.class);
+        private EWMA ewma;
+        private EWMA.Time emitRatePer;
+        public MovingAverageFunction(EWMA ewma, EWMA.Time emitRatePer){
+            this.ewma = ewma;
+            this.emitRatePer = emitRatePer;
+        }
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            this.ewma.mark(tuple.getLong(0));
+            LOG.debug("Rate: {}", this.ewma.getAverageRatePer(this.emitRatePer));
+            collector.emit(new Values(this.ewma.getAverageRatePer(this.emitRatePer)));
+        }
+    }
