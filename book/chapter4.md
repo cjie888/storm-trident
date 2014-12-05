@@ -571,3 +571,23 @@ getAverage()方法返回调用mark()之间的平均时间,以毫秒为单位。�
             collector.emit(new Values(this.ewma.getAverageRatePer(this.emitRatePer)));
         }
     }
+
+MovingAverage.execute()方法获取传入元组的第一个字段的整型值,使用值调用mark()方法更新当前平均,并发出当前平均率。在Trident中，function是追加,这意味着他们将值添加到流的元组。例如,考虑到元组进入我们的函数看起来像下面的代码片段:
+
+    [INFO, 1370918376296, test, foo]
+
+这意味着在处理之后,元组可能类似于下面的代码片段:
+
+    [INFO, 1370918376296, test, foo, 3.72234]
+
+
+在这里,新值代表了新的平均利率。
+
+使用这个函数,我们创建一个EWMA类的实例并将其传递给MovingAverageFunction构造函数。我们应用流的each()方法,选择时间戳字段作为输入,下面的代码片段所示:
+
+    EWMA ewma = new EWMA().sliding(1.0, Time.MINUTES).withAlpha（EWMA.ONE_MINUTE_ALPHA);
+    Stream averageStream = parsedStream.each(new Fields("timestamp"), new MovingAverageFunction(ewma, Time.MINUTES), new Fields("average"));
+
+###按阈值过滤
+
+对于我们的用例中,我们希望能够定义一个阈值来触发通知当超过阈值时。我们也希望当平均利率回落低于阈值(即恢复正常)时通知。我们可以完成此功能使用额外的函数和一个简单Trident过滤器的简单组合。
