@@ -591,3 +591,148 @@ MovingAverage.execute()方法获取传入元组的第一个字段的整型值,�
 ###按阈值过滤
 
 对于我们的用例中,我们希望能够定义一个阈值来触发通知当超过阈值时。我们也希望当平均利率回落低于阈值(即恢复正常)时通知。我们可以完成此功能使用额外的函数和一个简单Trident过滤器的简单组合。
+
+函数的工作将是确定新值的平均速度域是否超过阈值,是否代表了一种变化的前一个值(即是否已经改变了从低于阈值到高于阈值,反之亦然)。如果新的平均值表示状态变化,函数将发出布尔值true,否则它会发出false。我们将利用该值来过滤掉不代表状态变化的事件。
+
+我们将在ThresholdFilterFunction类实现阈值跟踪函数,如下面的代码片段所示:
+
+    public class ThresholdFilterFunction extends
+            BaseFunction {
+        private static final Logger LOG =
+                LoggerFactory.getLogger(ThresholdFilterFunction.class);
+        private static enum State {
+            BELOW, ABOVE;
+        }
+        private State last = State.BELOW;
+        private double threshold;
+        public ThresholdFilterFunction(double threshold){
+            this.threshold = threshold;
+        }
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+            double val = tuple.getDouble(0);
+            State newState = val < this.threshold ? State.BELOW : State.ABOVE;
+            boolean stateChange = this.last != newState;
+            collector.emit(new Values(stateChange, threshold));
+            this.last = newState;
+            LOG.debug("State change? --> {}", stateChange);
+        }
+    }
+
+ThresholdFilterFunction类定义了一个内部枚举来表示状态(高于阈值或低于阈值)。构造函数接受一个double型参数表示我们比较的阈值。在execute()方法中,我们获取目前的速度值,确定它是否低于或高于阈值。然后我们比较它到最后状态是否改变了并作为一个布尔值发出。最后,我们更新内部高于/低于状态到新计算值。
+
+通过ThresholdFilterFunction类,输入流元组将包含一个布尔值,我们可以使用它来轻松地过滤掉不触发状态变化的事件。为了过滤掉非状态变化事件,我们将使用一个简单的BooleanFilter类,如下面的代码片段所示:
+
+    public class BooleanFilter extends BaseFilter {
+        public boolean isKeep(TridentTuple tuple) {
+            return tuple.getBoolean(0);
+        }
+    }
+
+BooleanFilter.isKeep()方法只是从一个元组读取字段作为一个布尔值,并返回该值。任何元组包含错误的输入值将会被过滤掉的数据流。
+
+下面的代码片段演示了如何使用ThresholdFilterFuncationclass BooleanFilter类:
+
+    ThresholdFilterFunction tff = new ThresholdFilterFunction(50D);
+    Stream thresholdStream = averageStream.each(new Fields("average"), tff, new Fields("change", "threshold"));
+    Stream filteredStream =    thresholdStream.each(new Fields("change"), new BooleanFilter());
+
+第一行创建一个ThresholdFilterFunction实例,阈值为50.0。然后,我们创建一个新的流使用averageStream作为输入阈值函数,并选择元组的平均场作为输入。我们也为功能添加的字段分配名称(change和threshold)。最后,我们应用BooleanFilter类创建一个新的流只包含元组表示改变阈值比较。
+
+在这一点,我们拥有一切必要的执行通知。我们已经创建filteredStream只会包含代表的元组阈值状态改变。
+
+###通过XMPP发送通知
+XMPP协议提供了所有你期望的典型特征在一个即时通讯的标准:
+
+- 花名册(联系人列表)
+- 存在(知道当别人在网上和他们的可用性状态)
+- 用户即时通讯
+- 群聊天
+
+XMPP协议使用一个XML格式的通信协议,但有许多高级客户端库来处理大部分底层细节用一个简单的API。我们将使用Smack API( http://www.igniterealtime.org/projects/smack/ ),因为它是一种最简单的XMPP客户端实现。
+
+下面的代码片段演示了使用Smack API发送一个简单的即时消息给另一个用户:
+
+    // connect to XMPP server and login 
+    ConnectionConfiguration config = new ConnectionConfiguration("jabber.org");
+    XMPPConnection client = new XMPPConnection(config);
+    client.connect();
+    client.login("username", "password");
+    // send a message to another user
+    Message message = new Message("myfriend@jabber.org", Type.normal);
+    message.setBody("How are you today?");
+    client.sendPacket(message);
+
+上面的代码首先连接到XMPP服务器jabber.org,使用用户名和密码登陆。在幕后,Smack库处理低层的与服务器之间通信。当客户机连接进行身份验证后,它也将消息发送到服务器。这允许用户的联系人(在XMPP名单列出其他用户)获得
+通知的人正在连接。最后,我们创建和发送一个简单的消息给“myfriend@jabber.org”。
+
+基于这个简单的示例中,我们将创建一个名为XMPPFunction的类,当它收到一个trident元组将发送XMPP通知。类将建立一个长连接的XMPP服务器在prepare()方法。另外,在execute()方法,它将创建一个基于收到元组的XMPP消息。
+
+为了使XMPPFunction类更可重用,我们将介绍MessageMapper接口,定义了一个方法来格式化数据从trident元组字符串来适配即时消息通知,如下面代码片段所示:
+
+    public interface MessageMapper extends Serializable {
+        public String toMessageBody(TridentTuple tuple);
+    }
+
+我们将委托消息格式MessageMapper的实例为所示的XMPPFunction类，如下面的代码片段:
+
+    public class XMPPFunction extends BaseFunction {
+        private static final Logger LOG =
+                LoggerFactory.getLogger(XMPPFunction.class);
+        public static final String XMPP_TO = "storm.xmpp.to";
+        public static final String XMPP_USER = "storm.xmpp.user";
+        public static final String XMPP_PASSWORD = "storm.xmpp.password";
+        public static final String XMPP_SERVER =  "storm.xmpp.server";
+        private XMPPConnection xmppConnection;
+        private String to;
+        private MessageMapper mapper;
+        public XMPPFunction(MessageMapper mapper) {
+            this.mapper = mapper;
+        }
+    
+        @Override
+        public void prepare(Map conf,
+                            TridentOperationContext context) {
+            LOG.debug("Prepare: {}", conf);
+            super.prepare(conf, context);
+            this.to = (String) conf.get(XMPP_TO);
+    
+            ConnectionConfiguration config = new
+                    ConnectionConfiguration((String)  conf.get(XMPP_SERVER));
+            this.xmppConnection = new XMPPConnection(config);
+            try {
+                this.xmppConnection.connect();
+                this.xmppConnection.login((String) conf.get(XMPP_USER),
+                        (String) conf.get(XMPP_PASSWORD));
+            } catch (XMPPException e) {
+                LOG.warn("Error initializing XMPP Channel", e);
+            }
+        }
+        public void execute(TridentTuple tuple,
+                            TridentCollector collector) {
+           Message msg = new Message(this.to, Message.Type.normal);
+           msg.setBody(this.mapper.toMessageBody(tuple));
+           this.xmppConnection.sendPacket(msg);
+        }
+    }
+
+XMPPFunction类首先定义几个字符串常量用于查找值从storm配置传递到prepare()方法,按照此前声明的实例变量,我们将填充函数变得活跃。类构造函数把MessageMapper实例作为一个参数,将被使用在execute()方法来通知消息的正文格式。
+
+在prepare()方法中,我们查找配置参数(服务器、用户名、地址等等)为XMPPConnection类并打开连接。当部署拓扑时,使用此函数,XMPP客户端会发送一个包和其他用户配置的用户在他们的名册(好友列表)将收到现在通知表示用户在线。
+
+最后我们必要的通知机制是实现MessageMapper实例格式化一个元组的内容到一个人可读的消息体,如下面的代码片段所示:
+
+    public class NotifyMessageMapper implements MessageMapper {
+        public String toMessageBody(TridentTuple tuple) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("On " + new Date(tuple.getLongByField("timestamp")) + " ");
+            sb.append("the application \"" + tuple.getStringByField("logger") + "\" ");
+            sb.append("changed alert state based on a threshold of "
+                    + tuple.getDoubleByField("threshold") + ".\n");
+            sb.append("The last value was " + tuple.getDoubleByField("average") + "\n");
+            sb.append("The last message was \"" + tuple.getStringByField("message") + "\"");
+            return sb.toString();
+        }
+    }
+
+##最后的拓扑
