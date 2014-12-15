@@ -736,3 +736,68 @@ XMPPFunction类首先定义几个字符串常量用于查找值从storm配置传
     }
 
 ##最后的拓扑
+
+我们现在已经有所有必要的组件来构建我们的日志分析拓扑如下:
+
+    public class LogAnalysisTopology {
+        public static StormTopology buildTopology() {
+            TridentTopology topology = new TridentTopology();
+            KafkaConfig.StaticHosts kafkaHosts = KafkaConfig.StaticHosts.fromHostString(
+                            Arrays.asList(new String[]{"testserver"}), 1);
+            TridentKafkaConfig spoutConf = new TridentKafkaConfig(kafkaHosts, "log-analysis");
+            //spoutConf.scheme = new StringScheme();
+            spoutConf.scheme = new SchemeAsMultiScheme(new StringScheme());
+            spoutConf.forceStartOffsetTime(-1);
+            OpaqueTridentKafkaSpout spout = new OpaqueTridentKafkaSpout(spoutConf);
+            Stream spoutStream = topology.newStream("kafka-stream", spout);
+            Fields jsonFields = new Fields("level","timestamp", "message", "logger");
+            Stream parsedStream = spoutStream.each(new
+                    Fields("str"), new JsonProjectFunction(jsonFields), jsonFields);
+            // drop the unparsed JSON to reduce tuple size
+            parsedStream = parsedStream.project(jsonFields);
+            EWMA ewma = new EWMA().sliding(1.0,
+                    EWMA.Time.MINUTES).withAlpha(EWMA.ONE_MINUTE_ALPHA);
+            Stream averageStream = parsedStream.each(new Fields("timestamp"),
+                    new MovingAverageFunction(ewma,
+                            EWMA.Time.MINUTES), new Fields("average"));
+            ThresholdFilterFunction tff = new ThresholdFilterFunction(50D);
+            Stream thresholdStream = averageStream.each(new Fields("average"), tff,
+                    new Fields("change", "threshold"));
+            Stream filteredStream =
+                    thresholdStream.each(new Fields("change"), new BooleanFilter());
+            filteredStream.each(filteredStream.getOutputFields(),
+                    new XMPPFunction(new NotifyMessageMapper()), new Fields());
+            return topology.build();
+        }
+        public static void main(String[] args) throws
+                Exception {
+            Config conf = new Config();
+            conf.put(XMPPFunction.XMPP_USER, "storm@budreau.local");
+            conf.put(XMPPFunction.XMPP_PASSWORD, "storm");
+            conf.put(XMPPFunction.XMPP_SERVER, "budreau.local");
+            conf.put(XMPPFunction.XMPP_TO, "tgoetz@budreau.local");
+            conf.setMaxSpoutPending(5);
+            if (args.length == 0) {
+               LocalCluster cluster = new LocalCluster();
+               cluster.submitTopology("log-analysis", conf, buildTopology());
+            } else {
+                conf.setNumWorkers(3);
+                StormSubmitter.submitTopology(args[0],
+                        conf, buildTopology());
+            }
+        }
+    }
+
+
+然后,buildTopology()方法创建所有kafka spout和trident之间的流连接功能和过滤器。
+
+main()方法然后提交拓扑到一个集群:如果是运行在本地模式就是本地集群或远程集群运行时模式就是
+分布式模式。
+
+我们开始通过配置kafka spout来读取我们来自应用程序配置写日志事件的同一个话题。因为kafka持久化所有接受的消息,因为我们的应用程序可能已经跑了一段时间(因此记录了许多事件),我们告诉spout快进到kafka的结束队列通过调用forceStartOffsetTime()方法的值为1。这将避免所有的旧消息的重播,我们可能不感兴趣。使用的值2将迫使spout回退队列,并使用一个特定的日期以毫秒为单位将迫使它回放到特定的时间点。如果forceFromStartTime()方法不调用,spout将尝试恢复,最后离开zookeeper通过查找一个偏移量。
+
+接下来,我们设置JsonProjectFunction类来解析从kafka收到的原始JSON并释放出我们感兴趣的值。回想一下,trident的功能是附加的。这意味着我们的元组流,除了所有JSON,提取的值也会包含原始的未解析JSON字符串。因为我们不再需要这些数据,我们调用Stream.project()方法截取我们想要的字段列表。project()方法用于减少元组流，保留只是必要的字段,它尤为重要在实现大量数据流时。
+
+最后,我们应用BooleanFilter类来连接产生的流给XMPPFunction类。
+
+拓扑的main()方法简单填充一个XMPPFunction类配置对象所需的属性并提交拓扑。
