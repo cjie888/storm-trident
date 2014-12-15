@@ -10,13 +10,13 @@ storm-trident
 
 ### [第三章 Trident拓扑和传感器数据](book/chapter3.md) (已完成，待校对)
 
-### [第四章 实时趋势分析](book/chapter4.md) (进行中)
+### [第四章 实时趋势分析](book/chapter4.md) (已完成，待校对)
 
 ### [第五章 实时图分析](book/chapter5.md)(未开始)
 
 ### [第六章 人工智能](book/chapter6.md)(未开始)
 
-### [第七章 集成Druid进行金融分析](book/chapter7.md) (未开始)
+### [第七章 集成Druid进行金融分析](book/chapter7.md) (进行中)
 
 ### [第八章 自然语言处理](book/chapter8.md)(未开始)
 
