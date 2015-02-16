@@ -65,7 +65,11 @@
             <artifactId>smackx</artifactId>
             <version>3.2.1</version>
         </dependency>
-
+        <dependency>
+            <groupId>com.n3twork.druid</groupId>
+            <artifactId>druid</artifactId>
+            <version>0.6.105-hadoop2.4.0</version>
+        </dependency>
     </dependencies>
 
     <build>
