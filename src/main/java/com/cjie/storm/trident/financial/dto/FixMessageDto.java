@@ -1,4 +1,4 @@
-package com.cjie.storm.trident.druid.dto;
+package com.cjie.storm.trident.financial.dto;
 
 /**
  * Created with IntelliJ IDEA.

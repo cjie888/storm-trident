@@ -104,3 +104,128 @@ Druid通过实时节点收集信息。基于一个可配置的粒度,Real-time�
 同样,Druid是非事务性的。一旦Druid消费一个事件,事件将无法撤销。因此,如果一批在Storm部分被Druid消费,然后批重播,或成分变化,根本没有维度分析恢复方式。出于这个原因,有趣的是考虑Druid和Storm之间的集成，为了解决回放步骤,这种耦合的力量。
 
 简而言之,Storm连接到Druid,我们将利用的特征事务Spout连接时所说的风险降到最低像Drudi非事务性状态机制。
+
+##拓扑
+
+了解了架构概念后,让我们回到这个用例。为了保持专注于集成,我们将保持拓扑结构简单。下图描述了拓扑:
+
+![Druid Topology](./pic/7/druid_topology.png)
+
+包含简单FIX消息的FIX Spout发出元组信息。然后过滤给定类型信息,过滤包含价格信息的库存订单。然后,这些过滤的元组流入DruidState对象,与Druid的桥。
+
+这个简单的拓扑结构的代码如下:
+	
+	public class FinancialAnalyticsTopology {
+
+		public static StormTopology buildTopology() {
+	
+			TridentTopology topology = new TridentTopology();
+			FixEventSpout spout = new FixEventSpout();
+			Stream inputStream = topology.newStream("message", spout);
+			inputStream.each(new Fields("message"),	new MessageTypeFilter()).partitionPersist(new DruidStateFactory(),new Fields("message"), new DruidStateUpdater());
+			return topology.build();
+		}
+	}
+
+###Spout
+
+有许多FIX消息格式的解析器。在Spout中,我们将使用FIX Parser,这是一个Google项目。更多项目信息,你可以参考 https://code.google.com/p/fixparser/。
+
+就像前一章,Spout本身很简单。它只是返回一个协调器和一个发射器的引用,如下面所示代码:
+
+	public class FixEventSpout implements ITridentSpout<Long> {
+		private static final long serialVersionUID = 1L;
+		SpoutOutputCollector collector;
+		BatchCoordinator<Long> coordinator = new DefaultCoordinator();
+		Emitter<Long> emitter = new FixEventEmitter();
+		...
+		@Override
+		public Fields getOutputFields() {
+		    return new Fields("message");
+		}
+	}
+
+正如前面的代码所示,Spout声明一个输出字段:message。这将包含发射器产生的FixMessageDto对象,如以下代码所示:
+
+	public class FixEventEmitter implements ITridentSpout.Emitter<Long>,
+	        Serializable {
+	    private static final long serialVersionUID = 1L;
+	    public static AtomicInteger successfulTransactions = new AtomicInteger(0);
+	    public static AtomicInteger uids = new AtomicInteger(0);
+	
+	    @SuppressWarnings("rawtypes")
+	    @Override
+	    public void emitBatch(TransactionAttempt tx, Long coordinatorMeta, TridentCollector collector) {
+	        InputStream inputStream = null;
+	        File file = new File("fix_data.txt");
+	        try {
+	            inputStream = new BufferedInputStream(new FileInputStream(file));
+	            SimpleFixParser parser = new SimpleFixParser(inputStream);
+	            SimpleFixMessage msg = null;
+	            do {
+	                msg = parser.readFixMessage();
+	                if (null != msg) {
+	                    FixMessageDto dto = new FixMessageDto();
+	                    for (TagValue tagValue : msg.fields()) {
+	                        if (tagValue.tag().equals("6")) { //AvgPx
+	                            // dto.price = Double.valueOf((String) tagValue.value());
+	                            dto.price = new Double((int)(Math.random() * 100));
+	                        } else if (tagValue.tag().equals("35")) {
+	                            dto.msgType = (String) tagValue.value();
+	                        } else if (tagValue.tag().equals("55")) {
+	                            dto.symbol = (String) tagValue.value();
+	                        } else if (tagValue.tag().equals("11")) {
+	                            // dto.uid = (String) tagValue.value();
+	                            dto.uid = Integer.toString(uids.incrementAndGet());
+	                        }
+	                    }
+	                    new ObjectOutputStream(new ByteArrayOutputStream()).writeObject(dto);
+	                    List<Object> message = new ArrayList<Object>();
+	                    message.add(dto);
+	                    collector.emit(message);
+	                }
+	            } while (msg != null);
+	        } catch (Exception e) {
+	            throw new RuntimeException(e);
+	        } finally {
+	            IoUtils.closeSilently(inputStream);
+	        }
+	    }
+	
+	    @Override
+	    public void success(TransactionAttempt tx) {
+	        successfulTransactions.incrementAndGet();
+	    }
+	
+	    @Override
+	    public void close() {
+	    }
+	}
+
+从前面的代码中,您可以看到,我们把重新解析为每个批次。正如我们前面所述,在实时系统中我们可能会通过TCP / IP接收消息并放入Kafka队列。然后,我们将使用Kafka Spout发出消息。它是一个个人喜好问题;但是,在Storm完全封装数据处理,系统将最有可能从队列获取原始消息文本。在设计中,我们将在一个函数中解析文本而不是Spout中。
+
+虽然这Spout对于这个示例是足够了,注意,每一批的组成是相同的。具体地说,每一批包含所有从文件的消息。因为我们状态的设计依赖于这一特点,在实际系统中,我们需要使用TransactionalKafkaSpout。
+
+###Filter
+
+像Spout,过滤器是非常简单的。它检查msgType对象和过滤不完整订单的消息。完整订单实际上是股票
+购买收据。它们包含的均价格,贸易和执行购买股票的符号。下面的代码是过滤消息类型:
+
+	public class MessageTypeFilter extends BaseFilter {
+	    private static final long serialVersionUID = 1L;
+	
+	    @Override
+	    public boolean isKeep(TridentTuple tuple) {
+	        FixMessageDto message = (FixMessageDto) tuple.getValue(0);
+	        if (message.msgType.equals("8")) {
+	            return true;
+	        }
+	        return false;
+	    }
+	}
+
+这提供了一个很好的机会,指出可串行性的重要性在Storm中。请注意,在前面的代码中过滤操作在一个FixMessageDto对象。这将是更容易简单地使用SimpleFixMessage对象,但SimpleFixMessage对象不是可序列化的。
+
+这不会产生任何问题当运行在本地集群。然而,由于storm在数据处理中元组在主机之间交换,所有的元素在一个元组必须是可序列化的。
+
+###Tip
