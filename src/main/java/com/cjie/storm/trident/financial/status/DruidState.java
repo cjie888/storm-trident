@@ -19,10 +19,8 @@ import java.util.Vector;
  * To change this template use File | Settings | File Templates.
  */
 public class DruidState implements State {
-    private static final Logger LOG =
-            LoggerFactory.getLogger(DruidState.class);
-    private List<FixMessageDto> messages =
-            new ArrayList<FixMessageDto>();
+    private static final Logger LOG = LoggerFactory.getLogger(DruidState.class);
+    private List<FixMessageDto> messages = new ArrayList<FixMessageDto>();
     private int partitionIndex;
 
     public DruidState(int partitionIndex) {
@@ -35,27 +33,23 @@ public class DruidState implements State {
 
     @Override
     public void commit(Long batchId) {
-        String partitionId = batchId.toString() + "-" +
-                partitionIndex;
+        String partitionId = batchId.toString() + "-" + partitionIndex;
         LOG.info("Committing partition [" +
                 partitionIndex + "] of batch [" + batchId + "]");
         try {
             if (StormFirehose.STATUS.isCompleted(partitionId)) {
                 LOG.warn("Encountered completed partition ["
-                        + partitionIndex + "] of batch [" + batchId
-                        + "]");
+                        + partitionIndex + "] of batch [" + batchId + "]");
                 return;
             } else if (StormFirehose.STATUS.isInLimbo(partitionId)) {
                 LOG.warn("Encountered limbo partition [" +
-                        partitionIndex
-                        + "] of batch [" + batchId +
+                        partitionIndex + "] of batch [" + batchId +
                         "] : NOTIFY THE AUTHORITIES!");
                 return;
             } else if (StormFirehose.STATUS.isInProgress(partitionId)) {
                 LOG.warn("Encountered in-progress partition [" +
                         partitionIndex + "] of batch [" + batchId
-                        +
-                        "] : NOTIFY THE AUTHORITIES!");
+                        + "] : NOTIFY THE AUTHORITIES!");
                 return;
             }
             StormFirehose.STATUS.putInProgress(partitionId);

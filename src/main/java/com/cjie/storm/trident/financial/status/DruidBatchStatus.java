@@ -14,8 +14,7 @@ import org.slf4j.LoggerFactory;
  * To change this template use File | Settings | File Templates.
  */
 public class DruidBatchStatus {
-    private static final Logger LOG =
-            LoggerFactory.getLogger(DruidBatchStatus.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DruidBatchStatus.class);
     final String COMPLETED_PATH = "completed";
     final String LIMBO_PATH = "limbo";
 

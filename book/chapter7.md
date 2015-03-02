@@ -285,3 +285,9 @@ Druid通过实时节点收集信息。基于一个可配置的粒度,Real-time�
 重要的是要注意,这种方法成功是因为我们使用的是事务spout。事务spout保证每一批都有相同的成分。此外,这个方法起作用,每个分区在批处理必须有相同的成分。这是真的当且仅当拓扑分区是确定的。使用确定性分区和事务spout,每个分区将包含相同的数据,即使在事件的重演。我们使用随机分组,这种方法行不通。我们的示例拓扑是确定的。这可以保证一批标识符,加上一个分区索引时,表示一组一致的数据。
 
 ##架构实现
+
+有了设计,我们可以将注意力转向实现。序列图如下所示:
+
+![Sequence Diagram](./pic/7/sequence_diagram.jpg)
+
+如前图所示的状态机实现设计。实时服务器启动后,Druid使用hasMore()方法调用StormFirehose对象。Druid的合同规定,Firehose对象实现将阻塞,直到数据是可用的。Druid是轮询，Firehose对象阻塞,Storm将元组发送到DruidState对象的消息缓冲区。批处理完成后,Storm调用DruidState对象commit()方法。这时,分区状态将被更新。分区进入progress状态，实现解锁StormFirehose对象。
