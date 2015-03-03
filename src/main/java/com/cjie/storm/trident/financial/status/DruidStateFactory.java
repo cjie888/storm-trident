@@ -4,6 +4,7 @@ import backtype.storm.task.IMetricsContext;
 import com.cjie.storm.trident.financial.druid.StormFirehoseFactory;
 import com.metamx.common.lifecycle.Lifecycle;
 import com.metamx.druid.realtime.RealtimeNode;
+import com.fasterxml.jackson.databind.jsontype.NamedType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import storm.trident.state.State;
@@ -21,8 +22,7 @@ import java.util.Map;
 public class DruidStateFactory implements
         StateFactory {
     private static final long serialVersionUID = 1L;
-    private static final Logger LOG =
-            LoggerFactory.getLogger(DruidStateFactory.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DruidStateFactory.class);
     private static RealtimeNode rn = null;
 
     private static synchronized void startRealtime() {
@@ -30,7 +30,7 @@ public class DruidStateFactory implements
             final Lifecycle lifecycle = new Lifecycle();
             rn = RealtimeNode.builder().build();
             lifecycle.addManagedInstance(rn);
-            rn.registerJacksonInjectable("storm", StormFirehoseFactory.class);
+            rn.registerJacksonSubtype(new NamedType(StormFirehoseFactory.class, "storm"));
             try {
                 lifecycle.start();
             } catch (Throwable t) {
@@ -40,8 +40,7 @@ public class DruidStateFactory implements
 
     @Override
     public State makeState(Map conf, IMetricsContext
-            metrics,
-                           int partitionIndex, int numPartitions) {
+            metrics, int partitionIndex, int numPartitions) {
         DruidStateFactory.startRealtime();
         return new DruidState(partitionIndex);
     }

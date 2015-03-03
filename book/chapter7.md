@@ -291,3 +291,131 @@ Druid通过实时节点收集信息。基于一个可配置的粒度,Real-time�
 ![Sequence Diagram](./pic/7/sequence_diagram.jpg)
 
 如前图所示的状态机实现设计。实时服务器启动后,Druid使用hasMore()方法调用StormFirehose对象。Druid的合同规定,Firehose对象实现将阻塞,直到数据是可用的。Druid是轮询，Firehose对象阻塞,Storm将元组发送到DruidState对象的消息缓冲区。批处理完成后,Storm调用DruidState对象commit()方法。这时,分区状态将被更新。分区进入progress状态，实现解锁StormFirehose对象。
+
+Druid开始通过nextRow()方法从StormFirehose对象获取数据。当StormFirehose对象消费完分区的内容时,它将分区转到limbo装填,然后把控制全交给Storm。
+
+最后,当StormFirehose调用commit()方法时,实现返回一个Runnable,这是Drudi使用通知Firehose持久化分区。Druid调用run()方法实现分区完成。
+
+###DruidState
+
+首先,我们将看看Storm的方程。在前面的章节中,我们扩展了NonTransactionalMap类来保存状态。抽象屏蔽我们的顺序批处理的细节。我们只是实现了IBackingMap接口支持multiGet和multiPut调用,和其余的超类。
+
+在这个场景中,我们需要更多的控制持久性过程而不是提供的默认实现。相反,我们需要实现自己的基本状态接口。下面的类图描述了类层次结构:
+
+![State Class](./pic/7/state_class.png)
+
+图中所示,DruidStateFactory类管理嵌入式实时节点。由此可得出一个论点管理嵌入式服务器的更新。然而,由于只应该有每个JVM一个实时服务器实例,实例需要存在任何状态对象之前,嵌入式服务器的生命周期管理似乎符合工厂更自然。
+
+下面的代码片段包含DruidStateFactory类的相关部分:
+
+	public class DruidStateFactory implements
+	        StateFactory {
+	    private static final long serialVersionUID = 1L;
+	    private static final Logger LOG = LoggerFactory.getLogger(DruidStateFactory.class);
+	    private static RealtimeNode rn = null;
+	
+	    private static synchronized void startRealtime() {
+	        if (rn == null) {
+	            final Lifecycle lifecycle = new Lifecycle();
+	            rn = RealtimeNode.builder().build();
+	            lifecycle.addManagedInstance(rn);
+	            rn.registerJacksonSubtype(new NamedType(StormFirehoseFactory.class, "storm"));
+	            try {
+	                lifecycle.start();
+	            } catch (Throwable t) {
+	            }
+	        }
+	    }
+	
+	    @Override
+	    public State makeState(Map conf, IMetricsContext
+	            metrics, int partitionIndex, int numPartitions) {
+	        DruidStateFactory.startRealtime();
+	        return new DruidState(partitionIndex);
+	    }
+	}
+
+没有太多的细节,前面的代码以实时节点开始如果没有开始。此外,它注册StormFirehoseFactory类与实时节点。
+
+工厂也实现了StateFactory接口从Storm,Storm可以使用这个工厂来创建新的状态对象。状态对象本身相当简单:
+
+	public class DruidState implements State {
+	    private static final Logger LOG = LoggerFactory.getLogger(DruidState.class);
+	    private List<FixMessageDto> messages = new ArrayList<FixMessageDto>();
+	    private int partitionIndex;
+	
+	    public DruidState(int partitionIndex) {
+	        this.partitionIndex = partitionIndex;
+	    }
+	
+	    @Override
+	    public void beginCommit(Long batchId) {
+	    }
+	
+	    @Override
+	    public void commit(Long batchId) {
+	        String partitionId = batchId.toString() + "-" + partitionIndex;
+	        LOG.info("Committing partition [" +
+	                partitionIndex + "] of batch [" + batchId + "]");
+	        try {
+	            if (StormFirehose.STATUS.isCompleted(partitionId)) {
+	                LOG.warn("Encountered completed partition ["
+	                        + partitionIndex + "] of batch [" + batchId + "]");
+	                return;
+	            } else if (StormFirehose.STATUS.isInLimbo(partitionId)) {
+	                LOG.warn("Encountered limbo partition [" +
+	                        partitionIndex + "] of batch [" + batchId +
+	                        "] : NOTIFY THE AUTHORITIES!");
+	                return;
+	            } else if (StormFirehose.STATUS.isInProgress(partitionId)) {
+	                LOG.warn("Encountered in-progress partition [" +
+	                        partitionIndex + "] of batch [" + batchId
+	                        + "] : NOTIFY THE AUTHORITIES!");
+	                return;
+	            }
+	            StormFirehose.STATUS.putInProgress(partitionId);
+	            StormFirehoseFactory.getFirehose()
+	                    .sendMessages(batchId, messages);
+	        } catch (Exception e) {
+	            LOG.error("Could not start firehose for ["
+	                    + partitionIndex + "] of batch [" + batchId + "]", e);
+	        }
+	    }
+	
+	    public void aggregateMessage(FixMessageDto message) {
+	        messages.add(message);
+	    }
+	}
+
+
+正如你所看到的在前面的代码中,状态对象是一个消息缓冲区。它转发实际提交逻辑给Firehose对象,不久我们将检查。然而,有几个关键的行在这个类中实现我们前面描述的故障检测。
+
+状态对象commit()方法中的条件逻辑检查Zookeeper状态来确定这个分区已经成功处理(在完成状态),未能提交(在Limbo状态),或处理失败(在处理中装填)。我们将会深入研究状态存储当我们检查DruidPartitionStatus对象。
+
+同样重要的是要注意,commit()方法由Storm直接调用,但aggregateMessage()方法被Updater调用。尽管Storm不应该同时调用这些方法,我们选择使用一个线程安全的向量。
+
+DruidStateUpdater代码如下:
+
+	public class DruidStateUpdater implements
+	        StateUpdater<DruidState> {
+	    @Override
+	    public void updateState(DruidState state,
+	                            List<TridentTuple> tuples, TridentCollector collector) {
+	        for (TridentTuple tuple : tuples) {
+	            FixMessageDto message = (FixMessageDto) tuple.getValue(0);
+	            state.aggregateMessage(message);
+	        }
+	    }
+	
+	    @Override
+	    public void prepare(Map conf, TridentOperationContext context) {
+	    }
+	
+	    @Override
+	    public void cleanup() {
+	    }
+	}
+
+如前面的代码所示,updater只需循环遍历元组并将它们传递到缓冲区的状态对象。
+
+###实现StormFirehose对象
