@@ -659,3 +659,41 @@ ZooKeeper维护一个节点树。每个节点都有一个相关联的路径,就�
 为了空间,我们只有显示构造函数和相关的limbo状态的方法。在构造函数中,客户机连接到zookeeper并创建三个基础路径在前面描述的代码。然后,它提供了查询方法来测试是否事务在处理中,limbo,或完成。它还提供了在这些状态之间事务转换的方法。
 
 ##执行实现
+
+有了上面足够的代码,让我们继续演示!我们开始使用拓扑FinancialAnalyticsTopology类的主要方法开始。为了更好的演示,我们引入随机价格在0到一百之间。(参考发射器代码。)
+
+一旦拓扑启动,您将看到以下输出:
+
+	2014-02-16 09:47:15,479-0500 | INFO [Thread-18]DefaultCoordinator.initializeTransaction(24) | Initializing Transaction [1615]
+	2014-02-16 09:47:15,482-0500 | INFO [Thread-22] DruidState.commit(28) | Committing partition [0] of batch [1615]
+	2014-02-16 09:47:15,484-0500 | INFO [Thread-22] StormFirehose.sendMessages(82) | Beginning commit to Druid. [7996] messages, unlocking [START]
+	2014-02-16 09:47:15,511-0500 | INFO [chief-stockinfo] StormFirehose.nextRow(58) | Batch is fully consumed by Druid. Unlocking [FINISH]
+	2014-02-16 09:47:15,511-0500 | INFO [Thread-22] StormFirehose.sendMessages(93) | Returning control to Storm.
+	2014-02-16 09:47:15,513-0500 | INFO [Thread-18] DefaultCoordinator.success(30) | Successful Transaction [1615]
+
+你可以从多个维度查询处理。
+
+使用zookeeper客户端,您可以检查事务的状态。看一看下面的清单,它显示了事务/批处理标识符和他们的状态:
+
+	[zk: localhost:2181(CONNECTED) 50] ls /stormdruid/current
+	[501-0]
+	[zk: localhost:2181(CONNECTED) 51] ls /stormdruid/limbo
+	[486-0, 417-0, 421-0, 418-0, 487-0, 485-0, 484-0, 452-0, ...
+	[zk: localhost:2181(CONNECTED) 82] ls /stormdruid/completed
+	[zk: localhost:2181(CONNECTED) 52] ls /stormdruid/completed
+	[59-0, 321-0, 296-0, 357-0, 358-0, 220-0, 355-0,
+
+为了报警和监控,请注意以下几点:
+
+- 如果有多个批处理在当前路径,然后应该发出警报
+- 如果有批处理标识符在limbo状态并不是连续的,或大大落后于当前标识符,应该发出警报
+
+清理zookeeper的状态,您可以执行下列代码:
+
+	zk: localhost:2181(CONNECTED) 83] rmr /stormdruid
+
+监控段传播,可以使用MySQL客户端。使用默认的模式,你会发现部分通过选择他们prod_segments表的下面的代码:
+
+	mysql> select * from prod_segments;
+
+##检查分析
