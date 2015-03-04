@@ -105,6 +105,10 @@ public class StormFirehose implements Firehose {
     public Runnable commit() {
         List<Long> limboTransactions = new ArrayList<Long>();
         //LIMBO_TRANSACTIONS.drainTo(limboTransactions);
+        for (Long transactionId : LIMBO_TRANSACTIONS) {
+            limboTransactions.add(transactionId);
+        }
+        LIMBO_TRANSACTIONS.clear();
         return new StormCommitRunnable(limboTransactions);
     }
 

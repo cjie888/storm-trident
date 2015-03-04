@@ -419,3 +419,243 @@ DruidStateUpdater代码如下:
 如前面的代码所示,updater只需循环遍历元组并将它们传递到缓冲区的状态对象。
 
 ###实现StormFirehose对象
+
+之前我们将注意力转向了Druid的实现,我们应该退一步,更详细地讨论Druid。Druid feed通过规范文件配置。在我们的例子中,是 realtime.spec,如以下代码所示:
+
+	[{
+	"schema": {
+		"dataSource": "stockinfo",
+		"aggregators": [
+			{ "type": "count", "name": "orders"},
+			{ "type": "doubleSum", "fieldName": "price", "name":"totalPrice" }
+		],
+		"indexGranularity": "minute",
+		"shardSpec": {"type": "none"}
+	},
+	"config": {
+		"maxRowsInMemory": 50000,
+		"intermediatePersistPeriod": "PT30s"
+	},
+	"firehose": {
+		"type": "storm",
+		"sleepUsec": 100000,
+		"maxGeneratedRows": 5000000,
+		"seed": 0,
+		"nTokens": 255,
+		"nPerSleep": 3
+	},
+	"plumber": {
+		"type": "realtime",
+		"windowPeriod": "PT30s",
+		"segmentGranularity": "minute",
+		"basePersistDirectory":
+		"/tmp/example/rand_realtime/basePersist"
+	}
+	}]
+
+在我们的例子中,最重要的元素在前面firehose规范文件是有模式的。模式元素定义了数据和Druid应该执行的聚合数据。在我们的示例中,Druid将计算的次数,我们看到股票代码字段和跟踪订单总价格支付的totalPrice字段。totalPrice字段将被用来计算股票平均超过时间的价格。此外,您需要指定一个indexGranularity对象,指定索引的时间粒度。
+
+firehose元素包含Firehose的配置对象。作为StateFactory接口,我们看到一个使用Druid的FirehoseFactory实现将被注册，当实时服务器启动时。工厂注册为Jackson类型。当实时规范文件进行解析时,firehose元素的JSON类型是用来连接适当的FirehoseFactory流数据。
+
+有关JSON多态性的更多信息,请参考下面的网站内容: http://wiki.fasterxml.com/JacksonPolymorphicDeserialization
+
+有关规范文件的更多信息,请参阅以下网站: https://github.com/metamx/druid/wiki/Realtime
+
+现在,我们可以将注意力转向Druid的实现。Firehose是主要必须实现的接口，它提供数据到一个Druid实时服务器。
+
+StormFirehoseFactory类的代码如下:
+
+	@JsonTypeName("storm")
+	public class StormFirehoseFactory implements
+        FirehoseFactory {
+	    private static final StormFirehose FIREHOSE = new StormFirehose();
+	
+	    @JsonCreator
+	    public StormFirehoseFactory() {
+	    }
+	
+	    public static StormFirehose getFirehose() {
+	        return FIREHOSE;
+	    }
+	
+	    @Override
+	    public Firehose connect() throws IOException {
+	        return FIREHOSE;
+	    }
+	}
+
+工厂实现很简单。在本例中,我们仅仅返回一个静态单例对象。注意,对象是注释@JsonTypeName和@JsonCreator。如上所述在前面的代码中,Jackson是FirehoseFactory对象注册的方式。因此,名称指定为@JsonTypeName必须结合规范文件中指定的类型。
+
+核心的实现是StormFirehose类。在这个类中,有四个关键的方法,我们将一个接一个研究:hasMore(),nextRow()、commit()和sendmessage()。
+
+sendmessage()方法是进入StormFirehose类的入口点。它是有效的Storm和Druid之间的切换点。这个方法的代码如下:
+
+    public synchronized void sendMessages(Long partitionId,
+                                          List<FixMessageDto> messages) {
+        BLOCKING_QUEUE = new ArrayBlockingQueue<FixMessageDto>(messages.size(), false, messages);
+        TRANSACTION_ID = partitionId;
+        LOG.info("Beginning commit to Druid. [" +  messages.size() + "] messages, unlocking [START]");
+        synchronized (START) {
+            START.notify();
+        }
+        try {
+            synchronized (FINISHED) {
+                FINISHED.wait();
+            }
+        } catch (InterruptedException e) {
+            LOG.error("Commit to Druid interrupted.");
+        }
+        LOG.info("Returning control to Storm.");
+    }
+
+这个方法是同步的,为了防止并发问题。注意,它不做任何超过消息缓冲区复制到一个队列并通知hasMore()方法来释放一批。然后,它阻塞等待Druid完全消费完此批次。
+
+然后,流流向nextRow()方法,代码如下:
+
+    @Override
+    public InputRow nextRow() {
+        final Map<String, Object> theMap =
+                Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        try {
+            FixMessageDto message = null;
+            message = BLOCKING_QUEUE.poll();
+            if (message != null) {
+                LOG.info("[" + message.symbol + "] @ [" + message.price + "]");
+                theMap.put("symbol", message.symbol);
+                theMap.put("price", message.price);
+            }
+            if (BLOCKING_QUEUE.isEmpty()) {
+                STATUS.putInLimbo(TRANSACTION_ID);
+                LIMBO_TRANSACTIONS.add(TRANSACTION_ID);
+                LOG.info("Batch is fully consumed by Druid. "
+                        + "Unlocking [FINISH]");
+                synchronized (FINISHED) {
+                    FINISHED.notify();
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Error occurred in nextRow.", e);
+            System.exit(-1);
+        }
+        final LinkedList<String> dimensions = new LinkedList<String>();
+        dimensions.add("symbol");
+        dimensions.add("price");
+        return new MapBasedInputRow(System.currentTimeMillis(), dimensions, theMap);
+    }
+
+这个方法将从一个队列拉取消息。如果不为空,数据添加到map,把Druid作为MapBasedInputRow传递方法。如果没有剩余的消息在队列中,sendmessage()方法,我们研究了在前面的代码被释放。从Storm的角度来看,批处理完成。Druid现在拥有数据。然而,从系统的角度来看,数据是在limbo装填因为Druid可能没有保存数据到磁盘。我们正处于一个完全丢失数据的风险在发生硬件故障时。
+
+Druid将调用hasMore()方法,如下所示代码:
+
+    @Override
+    public boolean hasMore() {
+        if (BLOCKING_QUEUE != null
+                && !BLOCKING_QUEUE.isEmpty())
+            return true;
+        try {
+            synchronized (START) {
+                START.wait();
+            }
+        } catch (InterruptedException e) {
+            LOG.error("hasMore() blocking interrupted!");
+        }
+        return true;
+    }
+
+因为队列是空的,该方法将阻塞,直到sendMessage()被再次调用。
+
+这使得只有一个剩余的问题,commit()方法。这是下面的代码所示:
+
+    @Override
+    public Runnable commit() {
+        List<Long> limboTransactions = new ArrayList<Long>();
+        LIMBO_TRANSACTIONS.drainTo(limboTransactions);
+        return new StormCommitRunnable(limboTransactions);
+    }
+
+该方法返回Runnable对象,持久化消息后将被Druid调用。尽管在Firehose对象所有其他方法从一个线程调用,从一个不同的线程调用Runnable,因此,必须是线程安全的。出于这个原因,我们的交易从limbo状态复制到一个单独的列表并将其传递到Runnable对象的构造函数。正如你所看到的在下面的代码,运行的事务只会移动到zookeeper完成状态。
+
+	public class StormCommitRunnable implements Runnable {
+	    private static final Logger LOG = LoggerFactory.getLogger(StormCommitRunnable.class);
+	    private List<Long> partitionIds = null;
+	
+	    public StormCommitRunnable(List<Long> partitionIds) {
+	        this.partitionIds = partitionIds;
+	    }
+	
+	    @Override
+	    public void run() {
+	        try {
+	            StormFirehose.STATUS.complete(partitionIds);
+	        } catch (Exception e) {
+	            LOG.error("Could not complete transactions.", e);
+	        }
+	    }
+	}
+
+###在zookeeper中实现分区状态
+
+现在,我们已经完成了所有的代码,我们可以看看状态事如何保存在Zookeeper中的。这使系统协调分布式处理,特别是在发生故障时。
+
+利用zookeeper实现持久化partition-processing状态。ZooKeeper是另一个开放源码项目。要了解更多信息,您可以参考 http://zookeeper.apache.org/。
+
+ZooKeeper维护一个节点树。每个节点都有一个相关联的路径,就像文件系统。实现使用zookeeper通过一个名为Curator的框架。更多信息,您可以参考 http://curator.incubator.apache.org/。
+
+当连接到动zookeeper通过curator,您提供一个命名空间。这是顶级节点的应用程序有效的数据存储。在我们的实现中,命名空间是stormdruid。然后,应用程序维护下面三个路径来存储状态信息。
+
+设计的路径对应描述的状态如下:
+
+- /stormdruid/current:对应于当前状态
+- /stormdruid/limbo:这对应于limbo状态
+- /stormdruid/completed:这对应于完成状态
+
+在我们的实现中,zookeeper的所有分区状态交互通过tDruidPartitionStatus类来完成。这个类的代码如下:
+
+	public class DruidBatchStatus {
+	    private static final Logger LOG = LoggerFactory.getLogger(DruidBatchStatus.class);
+	    final String COMPLETED_PATH = "completed";
+	    final String LIMBO_PATH = "limbo";
+	
+	    final String CURRENT_PATH = "current";
+	    private CuratorFramework curatorFramework;
+	
+	    public DruidBatchStatus() {
+	        try {
+	            curatorFramework =
+	                    CuratorFrameworkFactory.builder()
+	                            .namespace("stormdruid")
+	                            .connectString("localhost:2181")
+	                            .retryPolicy(new RetryNTimes(1, 1000))
+	                            .connectionTimeoutMs(5000)
+	                            .build();
+	            curatorFramework.start();
+	            if (curatorFramework.checkExists().forPath(COMPLETED_PATH) == null) {
+	                curatorFramework.create().forPath(COMPLETED_PATH);
+	            }
+	        } catch (Exception e) {
+	            LOG.error("Could not establish connection to Zookeeper", e);
+	        }
+	    }
+	
+	    public boolean isCompleted(String paritionId) throws Exception {
+	        return (curatorFramework.checkExists().forPath(COMPLETED_PATH + "/" + paritionId) != null);
+	    }
+	    public boolean isInLimbo(String paritionId) throws Exception {
+	        return (curatorFramework.checkExists().forPath(LIMBO_PATH + "/" + paritionId) != null);
+	    }
+	    public boolean isInProgress(String paritionId) throws Exception {
+	        return (curatorFramework.checkExists().forPath(CURRENT_PATH + "/" + paritionId) != null);
+	    }
+	    public void putInLimbo(Long paritionId) throws Exception {
+	        curatorFramework.inTransaction().
+	                delete().forPath(CURRENT_PATH + "/" + paritionId)
+	                .and().create().forPath(LIMBO_PATH + "/" + paritionId).and().commit();
+	    }
+	    public void putInProgress(String paritionId) throws Exception {
+	        curatorFramework.create().forPath(CURRENT_PATH + "/" + paritionId);
+	    }
+	}
+
+为了空间,我们只有显示构造函数和相关的limbo状态的方法。在构造函数中,客户机连接到zookeeper并创建三个基础路径在前面描述的代码。然后,它提供了查询方法来测试是否事务在处理中,limbo,或完成。它还提供了在这些状态之间事务转换的方法。
+
+##执行实现
