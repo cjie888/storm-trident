@@ -697,3 +697,90 @@ ZooKeeper维护一个节点树。每个节点都有一个相关联的路径,就�
 	mysql> select * from prod_segments;
 
 ##检查分析
+
+现在,我们都在等待那一刻,我们可以看到平均股票价格随着时间的推移,通过使用Druid提供的REST API。使用REST API,它不需要运行完全的Druid集群。您只能查询看到的奇异嵌入式实时的数据节点,但每个节点能够服务请求,这使得测试更加容易。使用curl,您可以发布实时的查询节点使用以下命令:
+
+	curl -sX POST "http://localhost:7070/druid/v2/?pretty=true" -H'content-type: application/json' -d @storm_query
+
+curl的最后一个参数声明引用一个文件,内容将包括POST请求的主体。文件包含以下细节:
+
+	{
+		"queryType": "groupBy",
+		"dataSource": "stockinfo",
+		"granularity": "minute",
+		"dimensions": ["symbol"],
+		"aggregations":[
+			{ "type": "longSum", "fieldName": "orders", "name": "cumulativeCount"},
+			{ "type": "doubleSum", "fieldName":	"totalPrice",	"name": "cumulativePrice" }
+		],
+		"postAggregations":[
+		{ "type":"arithmetic",
+			"name":"avg_price",
+			"fn":"/",
+			"fields":[ {"type":"fieldAccess","name":"avgprice","fieldName":"cumulativePrice"},
+                 	{"type":"fieldAccess","name":"numrows","fieldName":"cumulativeCount"}]}
+			],
+		"intervals":["2012-10-01T00:00/2020-01-01T00"]
+	}
+
+有两种类型的聚合发生在Druid。有索引时的聚合和查询时的聚合。索引期间发生的聚合在规范文件中定义。如果你还记得,我们有两个聚合在规范文件:
+
+	"aggregators": [
+		{ "type": "count", "name": "orders"},
+		{ "type": "doubleSum", "fieldName": "price", "name": "totalPrice" }
+	],	
+
+我们聚合的事件有两个字段:符号和价格。前面聚合在应用索引时,引入两个附加字段:totalPrice和orders。记得totalPrice是在每个事件的时间段价格之和。订单字段包含在这段时间事件的总数。
+
+然后,当我们执行查询时,Druid适用于第二组聚合基于groupBy声明。在我们的查询中,我们组通过符号的粒度一分钟。然后聚合引入两个新字段:cumulativeCount和cumulativePrice。这些字段包含的前面的聚合总和。
+
+最后,我们介绍一个postaggregation方法来计算平均片的时间。postaggregation方法通过(fn”:“/”)分割两个累积字段产生一个新的avg_price字段。
+
+curl命令的声明对正在运行的服务器导返回如下结果:
+	
+	[ {
+		"version" : "v1",
+		"timestamp" : "2013-05-15T22:31:00.000Z",
+		"event" : {
+			"cumulativePrice" : 3464069.0,
+			"symbol" : "MSFT",
+			"cumulativeCount" : 69114,
+			"avg_price" : 50.12108979367422
+		}
+	}, {
+		"version" : "v1",
+		"timestamp" : "2013-05-15T22:31:00.000Z",
+		"event" : {
+		"cumulativePrice" : 3515855.0,
+		"symbol" : "ORCL",
+		"cumulativeCount" : 68961,
+		"avg_price" : 50.98323690201708
+		}
+		...
+		{
+		"version" : "v1",
+		"timestamp" : "2013-05-15T22:32:00.000Z",
+		"event" : {
+			"cumulativePrice" : 1347494.0,
+			"symbol" : "ORCL",
+			"cumulativeCount" : 26696,
+			"avg_price" : 50.47550194785736
+		}
+		}, {
+		"version" : "v1",
+		"timestamp" : "2013-05-15T22:32:00.000Z",
+		"event" : {
+			"cumulativePrice" : 707317.0,
+			"symbol" : "SPY",
+			"cumulativeCount" : 13453,
+			"avg_price" : 52.576897346316805
+		}
+	} ]
+
+因为我们更新的代码生成随机价格在0和一百之间,意料之外的是,平均大约五十。(呜呼!)
+
+##总结
+
+在这一章,我们获得了更深的Trident API的认识。我们创建了一个状态和StateUpdater接口的直接实现而不是依赖默认实现。具体来说,我们实现这些接口，为了减少事务槽和一个非事务性系统之间的差距,即Druid。虽然不可能建立只有一次语义为非事务性存储,我们建立机制以警惕当系统遇到的问题。表面上,发生故障时我们可以使用一个批处理机制重建任何可疑聚合段。
+
+未来的深入,这将对于Storm和Druid之间建立一个幂等接口是有益的。要做到这一点,我们可以发布一个段为每一批Storm。因为在Druid中段传播是原子,这将给我们一个机制来自动提交每批Druid。此外,批次可以并行处理,提高吞吐量。Druid支持一组不断扩大的查询类型和聚合机制。这是是令人难以置信的强大,Storm和Druid是一个强大的一个结合。
